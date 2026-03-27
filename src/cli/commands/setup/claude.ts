@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { existsSync, mkdirSync, copyFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { green, dim } from "../../../util/colors.js";
 
 export function registerSetupClaude(parent: Command): void {
@@ -10,10 +11,7 @@ export function registerSetupClaude(parent: Command): void {
     .description("Install Ano skill for Claude Code")
     .option("--global", "Install to ~/.claude/skills/ (global)")
     .action(async (opts) => {
-      const __dirname = dirname(fileURLToPath(import.meta.url));
-      // Skill source is at skills/ano/SKILL.md relative to package root
-      // In built dist, we need to find it relative to the package
-      const skillSrc = findSkillFile(__dirname);
+      const skillSrc = findSkillFile();
 
       if (!skillSrc) {
         console.error(
@@ -22,13 +20,9 @@ export function registerSetupClaude(parent: Command): void {
         process.exit(1);
       }
 
+      const home = process.env.HOME ?? process.env.USERPROFILE ?? "~";
       const dest = opts.global
-        ? join(
-            process.env.HOME ?? "~",
-            ".claude",
-            "skills",
-            "ano.md",
-          )
+        ? join(home, ".claude", "skills", "ano.md")
         : join(process.cwd(), ".claude", "skills", "ano.md");
 
       mkdirSync(dirname(dest), { recursive: true });
@@ -41,13 +35,27 @@ export function registerSetupClaude(parent: Command): void {
     });
 }
 
-function findSkillFile(from: string): string | null {
-  // Walk up from current dir to find skills/ano/SKILL.md
-  let dir = from;
-  for (let i = 0; i < 5; i++) {
+function findSkillFile(): string | null {
+  // Strategy 1: Resolve from package root via require.resolve
+  try {
+    const require = createRequire(import.meta.url);
+    const pkgPath = require.resolve("ano-cli/package.json");
+    const pkgRoot = dirname(pkgPath);
+    const candidate = join(pkgRoot, "skills", "ano", "SKILL.md");
+    if (existsSync(candidate)) return candidate;
+  } catch {
+    // Not installed as a package, try relative paths
+  }
+
+  // Strategy 2: Walk up from the entry script's directory
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 8; i++) {
     const candidate = join(dir, "skills", "ano", "SKILL.md");
     if (existsSync(candidate)) return candidate;
-    dir = dirname(dir);
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
   }
+
   return null;
 }

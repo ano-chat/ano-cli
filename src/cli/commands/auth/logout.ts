@@ -11,7 +11,7 @@ export function registerAuthLogout(parent: Command): void {
     .description("Remove saved credentials")
     .option("-p, --profile <name>", "Profile to remove", "default")
     .action(
-      withErrorHandler(async (opts) => {
+      withErrorHandler(async (opts, _cmd) => {
         const creds = loadGlobalCredentials();
         if (!creds || !creds.profiles[opts.profile]) {
           console.log(`No profile "${opts.profile}" found.`);

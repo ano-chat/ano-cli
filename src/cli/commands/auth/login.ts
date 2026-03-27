@@ -19,7 +19,7 @@ export function registerAuthLogin(parent: Command): void {
     )
     .option("-p, --profile <name>", "Profile name", "default")
     .action(
-      withErrorHandler(async (opts) => {
+      withErrorHandler(async (opts, _cmd) => {
         // Validate the key by calling context
         const client = createApiClient({
           key: opts.key,

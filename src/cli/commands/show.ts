@@ -24,12 +24,19 @@ export function registerShow(parent: Command): void {
         const auth = resolveAuth(globals);
         const client = createApiClient(auth);
 
-        if (parsed.type === "channel" && parsed.channel) {
+        if (
+          (parsed.type === "channel" || parsed.type === "message") &&
+          parsed.channel
+        ) {
           const result = await client.readMessages({
             channel_id: parsed.channel,
           });
+          const messages = result.messages.map((m) => ({
+            ...m,
+            sender: typeof m.sender === "object" ? m.sender.name : m.sender,
+          }));
           output(globals, {
-            data: result.messages,
+            data: messages,
             columns: ["sender", "content", "timestamp"],
             title: `Messages`,
             breadcrumbs: [

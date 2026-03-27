@@ -35,7 +35,12 @@ function walkCommands(
 
   for (const sub of cmd.commands) {
     const subPath = [...path, sub.name()];
-    if (sub.commands.length > 0) {
+    // Skip the auto-generated "help" command
+    if (sub.name() === "help") continue;
+
+    const hasSubcommands = sub.commands.filter((c) => c.name() !== "help").length > 0;
+
+    if (hasSubcommands) {
       result.push(...walkCommands(sub, path));
     } else {
       result.push({

@@ -22,8 +22,13 @@ export function registerSearchMessages(parent: Command): void {
           limit: parseInt(opts.limit, 10),
         });
 
+        const messages = result.messages.map((m) => ({
+          ...m,
+          sender: typeof m.sender === "object" ? m.sender.name : m.sender,
+        }));
+
         output(globals, {
-          data: result.messages,
+          data: messages,
           columns: ["channel", "sender", "content", "timestamp"],
           title: `Search: "${query}"`,
           breadcrumbs: [

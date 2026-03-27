@@ -5,7 +5,7 @@ import { startBridge } from "../../../bridge/bridge.js";
 export function registerConnect(parent: Command): void {
   const group = new Command("connect")
     .description("Start real-time SSE bridge to Ano")
-    .option("-w, --webhook <url>", "POST events to this URL")
+    .option("--webhook <url>", "POST events to this URL")
     .option("--webhook-secret <secret>", "Webhook secret header")
     .option("--control-port <port>", "Control server port", parseInt)
     .option("--health-port <port>", "Health server port", parseInt)
@@ -41,7 +41,7 @@ export function registerConnect(parent: Command): void {
   group
     .command("install-service")
     .description("Install as persistent system service")
-    .option("-w, --webhook <url>", "POST events to this URL")
+    .option("--webhook <url>", "POST events to this URL")
     .option("--webhook-secret <secret>", "Webhook secret")
     .option("--control-port <port>", "Control server port", parseInt)
     .option("--health-port <port>", "Health server port", parseInt)

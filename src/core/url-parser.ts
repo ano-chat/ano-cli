@@ -8,7 +8,12 @@ export interface ParsedAnoUrl {
 export function parseAnoUrl(url: string): ParsedAnoUrl | null {
   try {
     const u = new URL(url);
-    if (!u.hostname.endsWith("ano.dev") && !u.hostname.includes("ano."))
+    const host = u.hostname;
+    if (
+      !host.endsWith("ano.dev") &&
+      host !== "ano.dev" &&
+      !host.endsWith(".ano.dev")
+    )
       return null;
 
     const parts = u.pathname.split("/").filter(Boolean);

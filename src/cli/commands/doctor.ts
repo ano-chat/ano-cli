@@ -105,4 +105,5 @@ function printChecks(globals: GlobalOptions, checks: CheckResult[]) {
   console.log(
     failed ? `\n${red("Issues found.")}` : `\n${green("All checks passed.")}`,
   );
+  if (failed) process.exit(1);
 }
