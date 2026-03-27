@@ -1,0 +1,44 @@
+{
+  "name": "ano-cli",
+  "version": "0.1.0",
+  "description": "CLI for Ano — team communication for humans and agents",
+  "type": "module",
+  "bin": {
+    "ano": "dist/index.js",
+    "ano-connect": "dist/connect-entry.js"
+  },
+  "files": [
+    "dist",
+    "skills"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "prettier --check .",
+    "format": "prettier --write .",
+    "surface:update": "tsx snapshots/update-surface.ts",
+    "surface:check": "tsx snapshots/update-surface.ts --check",
+    "ci": "npm run typecheck && npm run test && npm run build"
+  },
+  "dependencies": {
+    "commander": "^13.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.17",
+    "prettier": "^3.5.3",
+    "tsup": "^8.4.0",
+    "tsx": "^4.19.4",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.1"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LeoNilsson/ano-cli.git"
+  }
+}

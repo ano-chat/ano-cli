@@ -1,0 +1,18 @@
+{
+  "name": "skill-ano",
+  "version": "1.0.0",
+  "description": "Connect AI agents to Ano workspaces",
+  "keywords": ["ano", "workspace", "chat", "integration", "agent"],
+  "openclaw": {
+    "skill": true,
+    "triggers": [
+      "ano_cwk_",
+      "ano connect",
+      "ano status",
+      "ano disconnect",
+      "ano channels",
+      "ano messages",
+      "ano search"
+    ]
+  }
+}
