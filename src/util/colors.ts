@@ -1,5 +1,4 @@
-const enabled =
-  !process.env.NO_COLOR && process.stdout.isTTY !== false;
+const enabled = !process.env.NO_COLOR && process.stdout.isTTY === true;
 
 function wrap(code: string, reset: string) {
   return (text: string) =>

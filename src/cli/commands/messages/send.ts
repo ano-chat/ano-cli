@@ -35,9 +35,9 @@ export function registerSendMessage(parent: Command): void {
               description: "Read channel messages",
             },
             {
-              action: "typing",
-              cmd: `ano typing --channel ${opts.channel}`,
-              description: "Show typing indicator",
+              action: "search_messages",
+              cmd: 'ano messages search "query"',
+              description: "Search messages",
             },
           ],
         });

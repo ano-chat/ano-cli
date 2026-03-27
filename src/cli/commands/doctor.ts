@@ -78,6 +78,8 @@ export function registerDoctor(parent: Command): void {
 }
 
 function printChecks(globals: GlobalOptions, checks: CheckResult[]) {
+  const failed = checks.some((c) => c.status === "fail");
+
   if (globals.json || globals.agent || globals.quiet) {
     output(globals, {
       data: checks,
@@ -94,16 +96,17 @@ function printChecks(globals: GlobalOptions, checks: CheckResult[]) {
         },
       ],
     });
-    return;
+  } else {
+    const icons = { pass: green("✓"), fail: red("✗"), warn: yellow("!") };
+    for (const c of checks) {
+      console.log(`  ${icons[c.status]} ${c.name}: ${dim(c.message)}`);
+    }
+    console.log(
+      failed
+        ? `\n${red("Issues found.")}`
+        : `\n${green("All checks passed.")}`,
+    );
   }
 
-  const icons = { pass: green("✓"), fail: red("✗"), warn: yellow("!") };
-  for (const c of checks) {
-    console.log(`  ${icons[c.status]} ${c.name}: ${dim(c.message)}`);
-  }
-  const failed = checks.some((c) => c.status === "fail");
-  console.log(
-    failed ? `\n${red("Issues found.")}` : `\n${green("All checks passed.")}`,
-  );
   if (failed) process.exit(1);
 }

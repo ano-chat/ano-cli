@@ -107,10 +107,7 @@ export interface AnoApiClient {
 export function createApiClient(auth: ResolvedAuth): AnoApiClient {
   const { key, endpoint } = auth;
 
-  const headers = {
-    Authorization: `Bearer ${key}`,
-    "Content-Type": "application/json",
-  };
+  const authHeader = { Authorization: `Bearer ${key}` };
 
   async function post<T>(
     path: string,
@@ -119,7 +116,7 @@ export function createApiClient(auth: ResolvedAuth): AnoApiClient {
     try {
       const res = await retryFetch(`${endpoint}/mcp${path}`, {
         method: "POST",
-        headers,
+        headers: { ...authHeader, "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       if (!res.ok) return handleHttpError(res);
@@ -148,7 +145,7 @@ export function createApiClient(auth: ResolvedAuth): AnoApiClient {
       }
     }
     try {
-      const res = await retryFetch(url.toString(), { headers });
+      const res = await retryFetch(url.toString(), { headers: authHeader });
       if (!res.ok) return handleHttpError(res);
       return (await res.json()) as T;
     } catch (err) {
