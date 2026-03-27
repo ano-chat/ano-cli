@@ -1,0 +1,130 @@
+[
+  {
+    "command": "auth login",
+    "flags": [
+      "--endpoint",
+      "--key",
+      "--profile"
+    ],
+    "args": []
+  },
+  {
+    "command": "auth logout",
+    "flags": [
+      "--profile"
+    ],
+    "args": []
+  },
+  {
+    "command": "auth status",
+    "flags": [],
+    "args": []
+  },
+  {
+    "command": "channels list",
+    "flags": [],
+    "args": []
+  },
+  {
+    "command": "commands",
+    "flags": [],
+    "args": []
+  },
+  {
+    "command": "connect install-service",
+    "flags": [
+      "--control-port",
+      "--health-port",
+      "--openclaw",
+      "--openclaw-agent",
+      "--openclaw-token",
+      "--webhook",
+      "--webhook-secret"
+    ],
+    "args": []
+  },
+  {
+    "command": "connect uninstall-service",
+    "flags": [
+      "--workspace"
+    ],
+    "args": []
+  },
+  {
+    "command": "dm send",
+    "flags": [
+      "--email",
+      "--to",
+      "--user-id"
+    ],
+    "args": [
+      "content"
+    ]
+  },
+  {
+    "command": "doctor",
+    "flags": [],
+    "args": []
+  },
+  {
+    "command": "messages read",
+    "flags": [
+      "--channel",
+      "--limit"
+    ],
+    "args": []
+  },
+  {
+    "command": "messages search",
+    "flags": [
+      "--limit"
+    ],
+    "args": [
+      "query"
+    ]
+  },
+  {
+    "command": "messages send",
+    "flags": [
+      "--channel",
+      "--mention",
+      "--thread"
+    ],
+    "args": [
+      "content"
+    ]
+  },
+  {
+    "command": "setup claude",
+    "flags": [
+      "--global"
+    ],
+    "args": []
+  },
+  {
+    "command": "setup openclaw",
+    "flags": [
+      "--health-port",
+      "--openclaw-token",
+      "--openclaw-url"
+    ],
+    "args": []
+  },
+  {
+    "command": "show",
+    "flags": [],
+    "args": [
+      "url"
+    ]
+  },
+  {
+    "command": "users list",
+    "flags": [],
+    "args": []
+  },
+  {
+    "command": "workspaces list",
+    "flags": [],
+    "args": []
+  }
+]

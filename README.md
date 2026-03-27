@@ -1,15 +1,39 @@
 # Ano CLI
 
-Agent-first CLI for [Ano](https://ano.dev) — team communication for humans and agents.
+The official command-line interface for [Ano](https://ano.dev). Built for AI agents first, great for humans too.
+
+Read messages, send replies, search conversations, stream real-time events, and manage workspaces — all from the terminal or through any AI agent.
+
+```bash
+npm install -g ano-cli
+```
 
 ## Quick Start
 
 ```bash
-npx ano-cli auth login --key ano_cwk_your_api_key
+# Authenticate
+ano auth login --key ano_cwk_your_api_key
+
+# Explore your workspace
 ano channels list
-ano messages read --channel <id>
-ano messages send "Hello team" --channel <id>
+ano users list
+
+# Read and respond
+ano messages read --channel general
+ano messages send "Deployed v2.1 to staging" --channel engineering
+ano messages search "deployment failed"
+
+# Send a DM
+ano dm send "Can you review PR #42?" --to "Jane"
 ```
+
+## Why Ano CLI?
+
+**Agent-first design.** Every command returns structured JSON with breadcrumbs that tell your agent what to do next. Built-in `--help --agent` gives machine-readable command discovery. Your AI agent can navigate the entire Ano workspace without reading docs.
+
+**Real-time native.** Not just request/response — `ano connect` opens a persistent SSE stream for live events. Messages, DMs, reactions, and channel changes flow in real-time. Install as a system service for always-on agent presence.
+
+**Zero config.** One API key. One command. Works immediately.
 
 ## Installation
 
@@ -17,70 +41,136 @@ ano messages send "Hello team" --channel <id>
 # npm (recommended)
 npm install -g ano-cli
 
-# or run directly
-npx ano-cli <command>
+# or run without installing
+npx ano-cli channels list --key ano_cwk_...
 ```
+
+Requires Node.js 18+.
 
 ## Commands
 
-### Reading
+### Messages
 
 ```bash
-ano channels list                        # List channels
-ano messages read --channel <id>         # Read messages
-ano messages search "query"              # Search across workspace
-ano users list                           # List members
-ano workspaces list                      # List workspaces
-ano show <url>                           # Display content from URL
+ano messages read --channel <id>                       # Read recent messages
+ano messages read --channel <id> --limit 50            # Read more
+ano messages send "Hello team" --channel <id>          # Send a message
+ano messages send "Fix applied" --channel <id> --thread <msg_id>  # Reply in thread
+ano messages send "Hey @jane" --channel <id> --mention <user_id>  # @mention
+ano messages search "authentication bug"               # Full-text search
 ```
 
-### Writing
+### Direct Messages
 
 ```bash
-ano messages send "Hello" --channel <id>              # Send message
-ano messages send "Reply" --channel <id> --thread <id> # Reply in thread
-ano dm send "Hey" --to "Jane"                          # Send DM
+ano dm send "Quick question" --to "Jane Smith"         # By name
+ano dm send "See this PR" --email jane@company.com     # By email
+ano dm send "Approved" --user-id <id>                  # By ID
 ```
 
-### Real-time
+### Channels & Users
 
 ```bash
-ano connect                              # Start SSE bridge (events on stdout)
-ano connect --openclaw http://localhost:3000  # Agent mode with OpenClaw
-ano connect install-service --key <key>  # Install as persistent service
-ano connect uninstall-service --workspace <name>
+ano channels list         # All channels you can access
+ano users list            # All workspace members
+ano workspaces list       # Your workspaces
 ```
 
-### Setup & Diagnostics
+### Real-Time Bridge
+
+`ano connect` opens a persistent SSE connection. Events stream as JSON lines on stdout — your agent reads them and responds via stdin commands or the control port.
 
 ```bash
-ano auth login --key <key>               # Save API key
-ano auth status                          # Check auth
-ano doctor                               # Full diagnostics
-ano setup claude                         # Install Claude Code skill
-ano setup openclaw                       # Configure OpenClaw integration
+# Basic bridge — events on stdout, commands on stdin
+ano connect
+
+# With OpenClaw agent mode — auto-responds to mentions and DMs
+ano connect --openclaw http://localhost:3000
+
+# With health monitoring
+ano connect --health-port 8080
+
+# Install as a persistent system service (survives reboots)
+ano connect install-service --key ano_cwk_... --health-port 8080
+
+# Remove the service
+ano connect uninstall-service --workspace "My Workspace"
+```
+
+**Event types:** `message`, `thread_reply`, `dm`, `reaction`, `channel_added`, `channel_removed`
+
+**stdin commands:**
+```json
+{"action": "send_message", "channel_id": "...", "content": "Hello"}
+{"action": "send_dm", "recipient_name": "Jane", "content": "Hey"}
+{"action": "typing", "channel_id": "..."}
+```
+
+### Diagnostics
+
+```bash
+ano doctor          # Check auth, connectivity, workspace access
+ano auth status     # Show current authentication
+ano show <url>      # Display content from an Ano URL
+```
+
+### Agent Setup
+
+```bash
+ano setup claude              # Install skill for Claude Code
+ano setup claude --global     # Install globally
+ano setup openclaw            # Configure OpenClaw integration
 ```
 
 ## Output Formats
 
-Every command supports multiple output modes:
+Every command supports four output modes:
 
-| Flag | Format | Use case |
-|------|--------|----------|
-| (default) | Styled | Human-readable with colors |
-| `--json` | JSON envelope | `{ok, data, breadcrumbs, meta}` |
-| `--md` | GFM markdown | Tables and bullet points |
-| `--quiet` / `--agent` | Raw data | One JSON object per line |
+```bash
+ano channels list              # Styled for humans (default in TTY)
+ano channels list --json       # JSON envelope with breadcrumbs
+ano channels list --md         # GFM markdown tables
+ano channels list --quiet      # Raw JSON, one object per line
+```
+
+### JSON Envelope
+
+The `--json` format wraps every response in a consistent envelope:
+
+```json
+{
+  "ok": true,
+  "data": [
+    {"id": "ch_1", "name": "general", "type": "channel", "topic": "General discussion"}
+  ],
+  "breadcrumbs": [
+    {"action": "read_messages", "cmd": "ano messages read --channel ch_1", "description": "Read messages from a channel"},
+    {"action": "send_message", "cmd": "ano messages send --channel ch_1 \"Hello\"", "description": "Send a message to a channel"}
+  ],
+  "meta": {
+    "timestamp": "2026-03-27T10:00:00.000Z",
+    "version": "0.1.0"
+  }
+}
+```
+
+**Breadcrumbs** are the key agent feature — every response tells your agent what to do next.
 
 ## Agent Integration
 
-### Structured Help
+### Structured Command Discovery
+
+Any agent can explore the full CLI without reading documentation:
 
 ```bash
+# Get structured JSON for any command
 ano channels list --help --agent
+
+# Get the complete command catalog
+ano commands --json
 ```
 
-Returns structured JSON describing the command:
+`--help --agent` returns:
 
 ```json
 {
@@ -93,65 +183,93 @@ Returns structured JSON describing the command:
 }
 ```
 
-### Command Catalog
-
-```bash
-ano commands --json
-```
-
-Returns the full command tree as machine-readable JSON.
-
-### Breadcrumbs
-
-Every `--json` response includes `breadcrumbs` — suggested next commands:
-
-```json
-{
-  "ok": true,
-  "data": [...],
-  "breadcrumbs": [
-    {"action": "read_messages", "cmd": "ano messages read --channel <id>", "description": "Read messages"}
-  ]
-}
-```
-
 ### Skill File
 
-Install the comprehensive agent skill file:
+The repo includes a comprehensive [SKILL.md](skills/ano/SKILL.md) (1100+ lines) that teaches any AI agent how to use every command, with decision trees, workflows, error handling patterns, and integration examples.
+
+Install it for your agent:
 
 ```bash
-ano setup claude    # For Claude Code
-ano setup openclaw  # For OpenClaw agents
+ano setup claude     # Claude Code
+ano setup openclaw   # OpenClaw
 ```
 
-Or point your agent at `skills/ano/SKILL.md`.
+Or point your agent at `skills/ano/SKILL.md` directly.
+
+### OpenClaw Agent Mode
+
+Connect an OpenClaw agent to your Ano workspace with a single command:
+
+```bash
+ano connect \
+  --key ano_cwk_... \
+  --openclaw http://localhost:3000 \
+  --openclaw-token <token> \
+  --health-port 8080
+```
+
+The agent automatically responds to @mentions, DMs, and thread replies.
 
 ## Authentication
 
-Auth is resolved through a priority chain:
+Auth resolves through a priority chain:
 
-1. `--key` flag (highest priority)
-2. `ANO_API_KEY` environment variable
-3. `.ano/config.json` (project-level)
-4. `~/.config/ano/credentials.json` (global)
+| Priority | Source | Example |
+|----------|--------|---------|
+| 1 | `--key` flag | `ano channels list --key ano_cwk_...` |
+| 2 | `ANO_API_KEY` env | `export ANO_API_KEY=ano_cwk_...` |
+| 3 | `.ano/config.json` | Project-level config |
+| 4 | `~/.config/ano/credentials.json` | Global config (via `ano auth login`) |
+
+```bash
+# Save credentials (validates the key first)
+ano auth login --key ano_cwk_your_key
+
+# Check what's configured
+ano auth status
+
+# Remove credentials
+ano auth logout
+```
 
 ## Exit Codes
 
-| Code | Meaning |
-|------|---------|
-| 0 | OK |
-| 1 | Usage error |
-| 2 | Not found |
-| 3 | Auth error |
-| 4 | Forbidden |
-| 5 | Rate limited |
-| 6 | Network error |
-| 7 | API error |
+Every error has a typed exit code for programmatic handling:
+
+| Code | Name | Meaning |
+|------|------|---------|
+| 0 | OK | Success |
+| 1 | USAGE | Bad arguments or flags |
+| 2 | NOT_FOUND | Resource doesn't exist |
+| 3 | AUTH | Invalid or missing API key |
+| 4 | FORBIDDEN | Insufficient permissions |
+| 5 | RATE_LIMIT | 60 requests/minute exceeded |
+| 6 | NETWORK | Connection failed |
+| 7 | API_ERROR | Server error |
+
+Errors in `--json` mode return structured objects:
+
+```json
+{"ok": false, "error": "Invalid or expired API key", "code": 3, "hint": "Run \"ano auth login\" or pass --key"}
+```
 
 ## Backward Compatibility
 
-This package also provides `ano-connect` as a binary for backward compatibility with existing services and scripts. Use `ano connect` for new integrations.
+This package also provides `ano-connect` as a binary for existing scripts and services. For new work, use `ano connect` instead.
+
+## Development
+
+```bash
+git clone https://github.com/LeoNilsson/ano-cli.git
+cd ano-cli
+npm install
+npm run build          # Build with tsup
+npm run typecheck      # TypeScript check
+npm run test           # Run tests
+npm run surface:update # Regenerate command surface snapshot
+npm run surface:check  # Check for breaking changes
+```
 
 ## License
 
-MIT
+[MIT](LICENSE)
