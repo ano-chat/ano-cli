@@ -1,6 +1,6 @@
 {
   "name": "ano-connect",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "CLI for Ano — team communication for humans and agents",
   "type": "module",
   "bin": {
