@@ -11,19 +11,24 @@ export function registerAuthLogin(parent: Command): void {
   parent
     .command("login")
     .description("Save an API key for authentication")
-    .requiredOption("-k, --key <key>", "API key (ano_cwk_...)")
-    .option(
-      "-e, --endpoint <url>",
-      "API endpoint",
-      "https://api.ano.dev",
-    )
     .option("-p, --profile <name>", "Profile name", "default")
     .action(
-      withErrorHandler(async (opts, _cmd) => {
+      withErrorHandler(async (opts, cmd) => {
+        // Read key and endpoint from global options (root defines -k, --key and -e, --endpoint)
+        const globals = cmd.optsWithGlobals();
+        const key = globals.key ?? process.env.ANO_API_KEY;
+        if (!key) {
+          console.error(
+            "Error: --key or ANO_API_KEY required. Usage: ano -k <key> auth login",
+          );
+          process.exit(1);
+        }
+        const endpoint = globals.endpoint ?? "https://api.ano.dev";
+
         // Validate the key by calling context
         const client = createApiClient({
-          key: opts.key,
-          endpoint: opts.endpoint,
+          key,
+          endpoint,
           source: "flag",
         });
         const ctx = await client.context();
@@ -31,11 +36,9 @@ export function registerAuthLogin(parent: Command): void {
         // Save credentials
         const creds = loadGlobalCredentials() ?? { profiles: {} };
         creds.profiles[opts.profile] = {
-          key: opts.key,
+          key,
           endpoint:
-            opts.endpoint !== "https://api.ano.dev"
-              ? opts.endpoint
-              : undefined,
+            endpoint !== "https://api.ano.dev" ? endpoint : undefined,
           workspace_name: ctx.workspace.name,
           created_at: new Date().toISOString(),
         };
