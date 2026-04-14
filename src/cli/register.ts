@@ -10,6 +10,7 @@ import { registerSetup } from "./commands/setup/index.js";
 import { registerDoctor } from "./commands/doctor.js";
 import { registerShow } from "./commands/show.js";
 import { registerCommands } from "./commands/commands.js";
+import { registerTables } from "./commands/tables/index.js";
 
 export function registerAllCommands(program: Command): void {
   registerAuth(program);
@@ -18,6 +19,7 @@ export function registerAllCommands(program: Command): void {
   registerDm(program);
   registerUsers(program);
   registerWorkspaces(program);
+  registerTables(program);
   registerConnect(program);
   registerSetup(program);
   registerDoctor(program);
