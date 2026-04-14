@@ -70,6 +70,57 @@ export interface SendDmResult {
   recipient: string;
 }
 
+// ── Table types ──────────────────────────────────────────────────
+
+export interface TableField {
+  id: string;
+  name: string;
+  type: string;
+  options?: unknown;
+}
+
+export interface Table {
+  id: string;
+  name: string;
+  description?: string;
+  icon?: string;
+  color?: string;
+  prefix?: string;
+  field_definitions: TableField[];
+  item_count?: number;
+}
+
+export interface TableItem {
+  id: string;
+  display_id?: string;
+  fields: Record<string, unknown>;
+  is_archived?: boolean;
+  created_at?: number;
+  updated_at?: number;
+}
+
+export interface TableItemComment {
+  comment_id: string;
+  item_id: string;
+}
+
+export interface QueryTableItemsResult {
+  items: TableItem[];
+  cursor?: string;
+  has_more?: boolean;
+}
+
+export interface TableFilter {
+  field_id: string;
+  operator: string;
+  value?: string | number | boolean | string[] | null;
+}
+
+export interface TableSort {
+  field_id: string;
+  direction: "asc" | "desc";
+}
+
 // ── Client ────────────────────────────────────────────────────────
 
 export interface AnoApiClient {
@@ -102,6 +153,38 @@ export interface AnoApiClient {
     workspace_id?: string;
   }): Promise<SendDmResult>;
   typing(opts: { channel_id: string }): Promise<{ ok: boolean }>;
+  listTables(opts?: { workspace_id?: string }): Promise<Table[]>;
+  getTable(opts: { table_id: string }): Promise<Table>;
+  queryTableItems(opts: {
+    table_id: string;
+    filters?: TableFilter[];
+    sort?: TableSort;
+    include_archived?: boolean;
+    limit?: number;
+    cursor?: string;
+  }): Promise<QueryTableItemsResult>;
+  createTable(opts: {
+    workspace_id?: string;
+    name: string;
+    description?: string;
+    template_type?: "default" | "blank";
+    icon?: string;
+    color?: string;
+    prefix?: string;
+  }): Promise<Table>;
+  createTableItem(opts: {
+    table_id: string;
+    fields: Record<string, unknown>;
+  }): Promise<{ item_id: string }>;
+  updateTableItem(opts: {
+    item_id: string;
+    fields?: Record<string, unknown>;
+    is_archived?: boolean;
+  }): Promise<{ item_id: string }>;
+  addTableItemComment(opts: {
+    item_id: string;
+    body: string;
+  }): Promise<TableItemComment>;
 }
 
 export function createApiClient(auth: ResolvedAuth): AnoApiClient {
@@ -175,13 +258,19 @@ export function createApiClient(auth: ResolvedAuth): AnoApiClient {
     sendMessage: (opts) => post("/send_message", opts),
     sendDm: (opts) => post("/send_dm", opts),
     typing: (opts) => post("/typing", opts),
+    listTables: (opts) => post("/list_tables", opts ?? {}),
+    getTable: (opts) => post("/get_table", opts),
+    queryTableItems: (opts) => post("/query_table_items", opts),
+    createTable: (opts) => post("/create_table", opts),
+    createTableItem: (opts) => post("/create_table_item", opts),
+    updateTableItem: (opts) => post("/update_table_item", opts),
+    addTableItemComment: (opts) => post("/add_table_item_comment", opts),
   };
 }
 
 async function handleHttpError(res: Response): Promise<never> {
   const text = await res.text().catch(() => "");
-  if (res.status === 401)
-    throw new AuthError("Invalid or expired API key");
+  if (res.status === 401) throw new AuthError("Invalid or expired API key");
   if (res.status === 403)
     throw new AuthError("Insufficient permissions", ExitCode.FORBIDDEN);
   if (res.status === 404) throw new NotFoundError(text || "Not found");
@@ -190,12 +279,10 @@ async function handleHttpError(res: Response): Promise<never> {
 }
 
 function handlePermanentError(err: PermanentError): never {
-  if (err.status === 401)
-    throw new AuthError("Invalid or expired API key");
+  if (err.status === 401) throw new AuthError("Invalid or expired API key");
   if (err.status === 403)
     throw new AuthError("Insufficient permissions", ExitCode.FORBIDDEN);
-  if (err.status === 404)
-    throw new NotFoundError("Resource not found");
+  if (err.status === 404) throw new NotFoundError("Resource not found");
   if (err.status === 429) throw new RateLimitError("Rate limit exceeded");
   throw new ApiError(`API error: ${err.message}`, err.status);
 }
