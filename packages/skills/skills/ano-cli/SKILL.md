@@ -1,5 +1,5 @@
 ---
-name: ano
+name: ano-cli
 description: |
   CLI for Ano team communication. Channels, messages, DMs, users, workspaces,
   search, real-time streaming, and agent setup. Use for ANY Ano action.
@@ -61,13 +61,13 @@ search conversations, stream real-time events, and manage agent integrations.
 
 ## Output Modes
 
-| Flag | Format | When to use |
-|------|--------|-------------|
-| `--agent` | Raw JSON (one object per line) | Default for agents |
-| `--json` | Envelope: `{ok, data, breadcrumbs, meta}` | When you need breadcrumbs |
-| `--md` | GFM markdown tables | Presenting to humans |
-| `--quiet` | Same as `--agent` | Scripting |
-| (none) | Styled with colors | Interactive TTY |
+| Flag      | Format                                    | When to use               |
+| --------- | ----------------------------------------- | ------------------------- |
+| `--agent` | Raw JSON (one object per line)            | Default for agents        |
+| `--json`  | Envelope: `{ok, data, breadcrumbs, meta}` | When you need breadcrumbs |
+| `--md`    | GFM markdown tables                       | Presenting to humans      |
+| `--quiet` | Same as `--agent`                         | Scripting                 |
+| (none)    | Styled with colors                        | Interactive TTY           |
 
 ### JSON envelope (`--json`)
 
@@ -85,7 +85,12 @@ search conversations, stream real-time events, and manage agent integrations.
 ### Error output
 
 ```json
-{"ok": false, "error": "Invalid or expired API key", "code": 3, "hint": "Run \"ano auth login\" or pass --key"}
+{
+  "ok": false,
+  "error": "Invalid or expired API key",
+  "code": 3,
+  "hint": "Run \"ano auth login\" or pass --key"
+}
 ```
 
 ## CLI Introspection
@@ -110,39 +115,39 @@ ano commands --json                 # Full command catalog
 
 ## Quick Reference
 
-| Task | Command |
-|------|---------|
-| **Auth** | |
-| Save API key | `ano auth login --key <key>` |
-| Check auth | `ano auth status --agent` |
-| Remove credentials | `ano auth logout` |
-| **Read** | |
-| List channels | `ano channels list --agent` |
-| List users | `ano users list --agent` |
-| List workspaces | `ano workspaces list --agent` |
-| Read messages | `ano messages read --channel <id> --agent` |
-| Read (limited) | `ano messages read --channel <id> --limit 10 --agent` |
-| Search messages | `ano messages search "query" --agent` |
-| Search (limited) | `ano messages search "query" --limit 5 --agent` |
-| Show URL content | `ano show <url> --agent` |
-| **Write** | |
-| Send message | `ano messages send "text" --channel <id> --agent` |
-| Reply in thread | `ano messages send "text" --channel <id> --thread <msg_id> --agent` |
-| Send with @mention | `ano messages send "text" --channel <id> --mention <user_id> --agent` |
-| Send DM (by name) | `ano dm send "text" --to "Name" --agent` |
-| Send DM (by email) | `ano dm send "text" --email user@co.com --agent` |
-| Send DM (by ID) | `ano dm send "text" --user-id <id> --agent` |
-| **Real-time** | |
-| Start SSE bridge | `ano connect` |
-| Bridge + agent mode | `ano connect --openclaw <url>` |
-| Bridge + health | `ano connect --health-port 8080` |
-| Install service | `ano connect install-service` |
-| Remove service | `ano connect uninstall-service --workspace <name>` |
-| **Diagnostics** | |
-| Full diagnostics | `ano doctor --agent` |
-| Command catalog | `ano commands --json` |
-| Setup Claude | `ano setup claude` |
-| Setup OpenClaw | `ano setup openclaw` |
+| Task                | Command                                                               |
+| ------------------- | --------------------------------------------------------------------- |
+| **Auth**            |                                                                       |
+| Save API key        | `ano auth login --key <key>`                                          |
+| Check auth          | `ano auth status --agent`                                             |
+| Remove credentials  | `ano auth logout`                                                     |
+| **Read**            |                                                                       |
+| List channels       | `ano channels list --agent`                                           |
+| List users          | `ano users list --agent`                                              |
+| List workspaces     | `ano workspaces list --agent`                                         |
+| Read messages       | `ano messages read --channel <id> --agent`                            |
+| Read (limited)      | `ano messages read --channel <id> --limit 10 --agent`                 |
+| Search messages     | `ano messages search "query" --agent`                                 |
+| Search (limited)    | `ano messages search "query" --limit 5 --agent`                       |
+| Show URL content    | `ano show <url> --agent`                                              |
+| **Write**           |                                                                       |
+| Send message        | `ano messages send "text" --channel <id> --agent`                     |
+| Reply in thread     | `ano messages send "text" --channel <id> --thread <msg_id> --agent`   |
+| Send with @mention  | `ano messages send "text" --channel <id> --mention <user_id> --agent` |
+| Send DM (by name)   | `ano dm send "text" --to "Name" --agent`                              |
+| Send DM (by email)  | `ano dm send "text" --email user@co.com --agent`                      |
+| Send DM (by ID)     | `ano dm send "text" --user-id <id> --agent`                           |
+| **Real-time**       |                                                                       |
+| Start SSE bridge    | `ano connect`                                                         |
+| Bridge + agent mode | `ano connect --openclaw <url>`                                        |
+| Bridge + health     | `ano connect --health-port 8080`                                      |
+| Install service     | `ano connect install-service`                                         |
+| Remove service      | `ano connect uninstall-service --workspace <name>`                    |
+| **Diagnostics**     |                                                                       |
+| Full diagnostics    | `ano doctor --agent`                                                  |
+| Command catalog     | `ano commands --json`                                                 |
+| Setup Claude        | `ano setup claude`                                                    |
+| Setup OpenClaw      | `ano setup openclaw`                                                  |
 
 ## Decision Trees
 
@@ -222,6 +227,7 @@ curl http://127.0.0.1:8080/healthz
 ### stdin/stdout bridge protocol
 
 Events stream as JSON lines on stdout:
+
 ```json
 {"type":"connected","workspace":"Acme","channels":5,"members":12}
 {"type":"message","channel_id":"...","content":"Hello","sender_name":"Jane"}
@@ -229,6 +235,7 @@ Events stream as JSON lines on stdout:
 ```
 
 Send commands on stdin:
+
 ```json
 {"action":"send_message","channel_id":"...","content":"Hello"}
 {"action":"send_dm","recipient_name":"Jane","content":"Hey"}
@@ -237,16 +244,16 @@ Send commands on stdin:
 
 ## Exit Codes
 
-| Code | Name | Meaning | Fix |
-|------|------|---------|-----|
-| 0 | OK | Success | — |
-| 1 | USAGE | Bad arguments | `ano <cmd> --help` |
-| 2 | NOT_FOUND | Resource missing | Verify ID/URL |
-| 3 | AUTH | Invalid/missing key | `ano auth login --key <key>` |
-| 4 | FORBIDDEN | No permission | Check key scopes |
-| 5 | RATE_LIMIT | 60/min exceeded | Wait 10s, retry |
-| 6 | NETWORK | Connection failed | `ano doctor --agent` |
-| 7 | API_ERROR | Server error | Retry |
+| Code | Name       | Meaning             | Fix                          |
+| ---- | ---------- | ------------------- | ---------------------------- |
+| 0    | OK         | Success             | —                            |
+| 1    | USAGE      | Bad arguments       | `ano <cmd> --help`           |
+| 2    | NOT_FOUND  | Resource missing    | Verify ID/URL                |
+| 3    | AUTH       | Invalid/missing key | `ano auth login --key <key>` |
+| 4    | FORBIDDEN  | No permission       | Check key scopes             |
+| 5    | RATE_LIMIT | 60/min exceeded     | Wait 10s, retry              |
+| 6    | NETWORK    | Connection failed   | `ano doctor --agent`         |
+| 7    | API_ERROR  | Server error        | Retry                        |
 
 ## Authentication
 
@@ -279,23 +286,23 @@ ano auth login --key ano_cwk_... --endpoint https://api-staging.ano.dev --profil
 └── config.json         # Project-level overrides (workspace_id, endpoint)
 ```
 
-| Env Variable | Description |
-|--------------|-------------|
-| `ANO_API_KEY` | API key |
-| `ANO_ENDPOINT` | API endpoint (default: https://api.ano.dev) |
-| `ANO_WORKSPACE_ID` | Default workspace |
-| `NO_COLOR` | Disable ANSI colors |
+| Env Variable       | Description                                 |
+| ------------------ | ------------------------------------------- |
+| `ANO_API_KEY`      | API key                                     |
+| `ANO_ENDPOINT`     | API endpoint (default: https://api.ano.dev) |
+| `ANO_WORKSPACE_ID` | Default workspace                           |
+| `NO_COLOR`         | Disable ANSI colors                         |
 
 ## Event Types (SSE Bridge)
 
-| Type | Trigger | Key Fields |
-|------|---------|------------|
-| `message` | Channel message | channel_id, content, sender_name, mentions |
-| `thread_reply` | Thread reply | channel_id, thread_id, content, parent |
-| `dm` | Direct message | channel_id, content, sender_name |
-| `reaction` | Emoji reaction | message_id, emoji, sender_name |
-| `channel_added` | Joined channel | channel_id, user_id |
-| `channel_removed` | Left channel | channel_id, user_id |
+| Type              | Trigger         | Key Fields                                 |
+| ----------------- | --------------- | ------------------------------------------ |
+| `message`         | Channel message | channel_id, content, sender_name, mentions |
+| `thread_reply`    | Thread reply    | channel_id, thread_id, content, parent     |
+| `dm`              | Direct message  | channel_id, content, sender_name           |
+| `reaction`        | Emoji reaction  | message_id, emoji, sender_name             |
+| `channel_added`   | Joined channel  | channel_id, user_id                        |
+| `channel_removed` | Left channel    | channel_id, user_id                        |
 
 Agent mode (`--openclaw`) auto-responds to DMs, thread replies, and @mentions.
 

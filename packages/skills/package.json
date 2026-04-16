@@ -1,0 +1,19 @@
+{
+  "name": "@ano-chat/skills",
+  "version": "0.3.0",
+  "description": "Claude Code skills for Ano — use the ano CLI and parse Send-to-Shell payloads",
+  "license": "MIT",
+  "files": [
+    ".claude-plugin",
+    "skills",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LeoNilsson/ano-cli.git",
+    "directory": "packages/skills"
+  }
+}

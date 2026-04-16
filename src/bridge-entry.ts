@@ -1,6 +1,8 @@
 /**
- * Backward-compatible entry point for "npx ano-connect".
- * Preserves the exact same CLI interface as the original ano-connect package.
+ * Standalone `ano-bridge` binary — zero-config bridge for connecting external
+ * AI agents (OpenClaw, webhooks) to an Ano workspace. The same functionality
+ * is available as `ano connect` inside the main CLI; this binary exists so
+ * background services and external agents can run a single focused command.
  */
 import { Command } from "commander";
 import { readdirSync } from "node:fs";
@@ -9,10 +11,8 @@ import { join } from "node:path";
 import { startBridge } from "./bridge/bridge.js";
 
 const program = new Command()
-  .name("ano-connect")
-  .description(
-    "Zero-config bridge for connecting AI agents to Ano (use `ano connect` instead)",
-  )
+  .name("ano-bridge")
+  .description("Zero-config bridge for connecting external AI agents to Ano")
   .requiredOption("-k, --key <key>", "Ano API key (ano_cwk_...)")
   .option("-e, --endpoint <url>", "Ano API endpoint", "https://api.ano.dev")
   .option("-w, --webhook <url>", "POST events as JSON to this URL")
@@ -48,11 +48,6 @@ const program = new Command()
       openclawToken?: string;
       openclawAgent: string;
     }) => {
-      // Deprecation notice (once)
-      process.stderr.write(
-        '[ano-connect] Note: Use "ano connect" instead. See https://github.com/LeoNilsson/ano-cli\n',
-      );
-
       const endpoint = opts.endpoint.replace(/\/+$/, "");
       await startBridge({
         apiKey: opts.key,
@@ -87,7 +82,10 @@ program
       console.error("Error: --key or ANO_API_KEY required.");
       process.exit(1);
     }
-    const endpoint = (merged.endpoint ?? "https://api.ano.dev").replace(/\/+$/, "");
+    const endpoint = (merged.endpoint ?? "https://api.ano.dev").replace(
+      /\/+$/,
+      "",
+    );
 
     const { installService } = await import("./bridge/service.js");
     await installService({
@@ -128,7 +126,9 @@ program
             const m = f.match(/^dev\.ano\.connect\.([a-f0-9]{12})\.plist$/);
             if (m) services.push(m[1]);
           }
-        } catch { /* dir may not exist */ }
+        } catch {
+          /* dir may not exist */
+        }
       } else if (platform === "linux") {
         const unitDir = join(home, ".config", "systemd", "user");
         try {
@@ -137,7 +137,9 @@ program
             const m = f.match(/^ano-connect-([a-f0-9]{12})\.service$/);
             if (m) services.push(m[1]);
           }
-        } catch { /* dir may not exist */ }
+        } catch {
+          /* dir may not exist */
+        }
       }
 
       if (services.length === 0) {
@@ -147,7 +149,9 @@ program
         target = services[0];
         console.error(`Auto-detected service: ${target}`);
       } else {
-        console.error("Multiple services found. Specify one with --service-name:");
+        console.error(
+          "Multiple services found. Specify one with --service-name:",
+        );
         for (const s of services) {
           console.error(`  ${s}`);
         }

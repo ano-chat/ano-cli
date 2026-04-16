@@ -15,8 +15,9 @@ export function registerSetupClaude(parent: Command): void {
 
       if (!skillSrc) {
         console.error(
-          "Error: Could not find SKILL.md. Ensure ano-cli is installed correctly.",
+          "Error: Could not find SKILL.md. For the full plugin install:",
         );
+        console.error("  claude plugin install @ano-chat/skills");
         process.exit(1);
       }
 
@@ -36,21 +37,20 @@ export function registerSetupClaude(parent: Command): void {
 }
 
 function findSkillFile(): string | null {
-  // Strategy 1: Resolve from package root via require.resolve
+  const relPath = join("packages", "skills", "skills", "ano-cli", "SKILL.md");
+
   try {
     const require = createRequire(import.meta.url);
-    const pkgPath = require.resolve("ano-cli/package.json");
-    const pkgRoot = dirname(pkgPath);
-    const candidate = join(pkgRoot, "skills", "ano", "SKILL.md");
+    const pkgPath = require.resolve("@ano-chat/skills/package.json");
+    const candidate = join(dirname(pkgPath), "skills", "ano-cli", "SKILL.md");
     if (existsSync(candidate)) return candidate;
   } catch {
-    // Not installed as a package, try relative paths
+    // @ano-chat/skills not installed — fall through to repo-local lookup
   }
 
-  // Strategy 2: Walk up from the entry script's directory
   let dir = dirname(fileURLToPath(import.meta.url));
   for (let i = 0; i < 8; i++) {
-    const candidate = join(dir, "skills", "ano", "SKILL.md");
+    const candidate = join(dir, relPath);
     if (existsSync(candidate)) return candidate;
     const parent = dirname(dir);
     if (parent === dir) break;
