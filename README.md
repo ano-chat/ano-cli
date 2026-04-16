@@ -5,7 +5,7 @@ The official command-line interface for [Ano](https://ano.dev). Built for AI age
 Read messages, send replies, search conversations, stream real-time events, and manage workspaces — all from the terminal or through any AI agent.
 
 ```bash
-npm install -g ano-cli
+npm install -g @ano-chat/cli
 ```
 
 ## Quick Start
@@ -39,10 +39,10 @@ ano dm send "Can you review PR #42?" --to "Jane"
 
 ```bash
 # npm (recommended)
-npm install -g ano-cli
+npm install -g @ano-chat/cli
 
 # or run without installing
-npx ano-cli channels list --key ano_cwk_...
+npx @ano-chat/cli channels list --key ano_cwk_...
 ```
 
 Requires Node.js 18+.
@@ -100,6 +100,7 @@ ano connect uninstall-service --workspace "My Workspace"
 **Event types:** `message`, `thread_reply`, `dm`, `reaction`, `channel_added`, `channel_removed`
 
 **stdin commands:**
+
 ```json
 {"action": "send_message", "channel_id": "...", "content": "Hello"}
 {"action": "send_dm", "recipient_name": "Jane", "content": "Hey"}
@@ -141,11 +142,24 @@ The `--json` format wraps every response in a consistent envelope:
 {
   "ok": true,
   "data": [
-    {"id": "ch_1", "name": "general", "type": "channel", "topic": "General discussion"}
+    {
+      "id": "ch_1",
+      "name": "general",
+      "type": "channel",
+      "topic": "General discussion"
+    }
   ],
   "breadcrumbs": [
-    {"action": "read_messages", "cmd": "ano messages read --channel ch_1", "description": "Read messages from a channel"},
-    {"action": "send_message", "cmd": "ano messages send --channel ch_1 \"Hello\"", "description": "Send a message to a channel"}
+    {
+      "action": "read_messages",
+      "cmd": "ano messages read --channel ch_1",
+      "description": "Read messages from a channel"
+    },
+    {
+      "action": "send_message",
+      "cmd": "ano messages send --channel ch_1 \"Hello\"",
+      "description": "Send a message to a channel"
+    }
   ],
   "meta": {
     "timestamp": "2026-03-27T10:00:00.000Z",
@@ -185,7 +199,7 @@ ano commands --json
 
 ### Skill File
 
-The repo includes a comprehensive [SKILL.md](skills/ano/SKILL.md) (1100+ lines) that teaches any AI agent how to use every command, with decision trees, workflows, error handling patterns, and integration examples.
+The repo includes a comprehensive [SKILL.md](packages/skills/skills/ano-cli/SKILL.md) that teaches any AI agent how to use every command, with decision trees, workflows, error handling patterns, and integration examples. It ships as part of the [`@ano-chat/skills`](https://www.npmjs.com/package/@ano-chat/skills) Claude Code plugin.
 
 Install it for your agent:
 
@@ -194,7 +208,7 @@ ano setup claude     # Claude Code
 ano setup openclaw   # OpenClaw
 ```
 
-Or point your agent at `skills/ano/SKILL.md` directly.
+Or point your agent at `packages/skills/skills/ano-cli/SKILL.md` directly.
 
 ### OpenClaw Agent Mode
 
@@ -214,12 +228,12 @@ The agent automatically responds to @mentions, DMs, and thread replies.
 
 Auth resolves through a priority chain:
 
-| Priority | Source | Example |
-|----------|--------|---------|
-| 1 | `--key` flag | `ano channels list --key ano_cwk_...` |
-| 2 | `ANO_API_KEY` env | `export ANO_API_KEY=ano_cwk_...` |
-| 3 | `.ano/config.json` | Project-level config |
-| 4 | `~/.config/ano/credentials.json` | Global config (via `ano auth login`) |
+| Priority | Source                           | Example                               |
+| -------- | -------------------------------- | ------------------------------------- |
+| 1        | `--key` flag                     | `ano channels list --key ano_cwk_...` |
+| 2        | `ANO_API_KEY` env                | `export ANO_API_KEY=ano_cwk_...`      |
+| 3        | `.ano/config.json`               | Project-level config                  |
+| 4        | `~/.config/ano/credentials.json` | Global config (via `ano auth login`)  |
 
 ```bash
 # Save credentials (validates the key first)
@@ -236,26 +250,36 @@ ano auth logout
 
 Every error has a typed exit code for programmatic handling:
 
-| Code | Name | Meaning |
-|------|------|---------|
-| 0 | OK | Success |
-| 1 | USAGE | Bad arguments or flags |
-| 2 | NOT_FOUND | Resource doesn't exist |
-| 3 | AUTH | Invalid or missing API key |
-| 4 | FORBIDDEN | Insufficient permissions |
-| 5 | RATE_LIMIT | 60 requests/minute exceeded |
-| 6 | NETWORK | Connection failed |
-| 7 | API_ERROR | Server error |
+| Code | Name       | Meaning                     |
+| ---- | ---------- | --------------------------- |
+| 0    | OK         | Success                     |
+| 1    | USAGE      | Bad arguments or flags      |
+| 2    | NOT_FOUND  | Resource doesn't exist      |
+| 3    | AUTH       | Invalid or missing API key  |
+| 4    | FORBIDDEN  | Insufficient permissions    |
+| 5    | RATE_LIMIT | 60 requests/minute exceeded |
+| 6    | NETWORK    | Connection failed           |
+| 7    | API_ERROR  | Server error                |
 
 Errors in `--json` mode return structured objects:
 
 ```json
-{"ok": false, "error": "Invalid or expired API key", "code": 3, "hint": "Run \"ano auth login\" or pass --key"}
+{
+  "ok": false,
+  "error": "Invalid or expired API key",
+  "code": 3,
+  "hint": "Run \"ano auth login\" or pass --key"
+}
 ```
 
-## Backward Compatibility
+## Binaries
 
-This package also provides `ano-connect` as a binary for existing scripts and services. For new work, use `ano connect` instead.
+This package installs two binaries:
+
+- **`ano`** — the interactive CLI (messages, channels, DMs, search, auth). Use this for day-to-day work.
+- **`ano-bridge`** — standalone bridge daemon for connecting external AI agents (OpenClaw, webhooks) to your workspace. Equivalent to `ano connect` but as a single focused binary, convenient for background services and process managers.
+
+> Previously published as `ano-connect` (with an `ano-connect` binary). Those names are deprecated — use `@ano-chat/cli` and `ano-bridge` for new work.
 
 ## Development
 

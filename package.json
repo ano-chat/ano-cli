@@ -1,15 +1,14 @@
 {
-  "name": "ano-connect",
-  "version": "1.1.0",
+  "name": "@ano-chat/cli",
+  "version": "2.0.0",
   "description": "CLI for Ano — team communication for humans and agents",
   "type": "module",
   "bin": {
     "ano": "dist/index.js",
-    "ano-connect": "dist/connect-entry.js"
+    "ano-bridge": "dist/bridge-entry.js"
   },
   "files": [
-    "dist",
-    "skills"
+    "dist"
   ],
   "scripts": {
     "build": "tsup",
@@ -21,6 +20,9 @@
     "surface:update": "tsx snapshots/update-surface.ts",
     "surface:check": "tsx snapshots/update-surface.ts --check",
     "ci": "npm run typecheck && npm run test && npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "commander": "^13.1.0"
