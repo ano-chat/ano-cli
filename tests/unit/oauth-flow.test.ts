@@ -122,12 +122,20 @@ describe("runOAuthLogin", () => {
     await expect(runPromise).rejects.toThrow(/User cancelled|access_denied/);
   });
 
-  it("rejects with a clear error when the port is already in use", async () => {
+  it("rejects with a clear error when BOTH loopback stacks are in use", async () => {
     const port = await freePort();
-    const blocker = createServer();
+    const v4Blocker = createServer();
+    const v6Blocker = createServer();
     await new Promise<void>((resolve) =>
-      blocker.listen(port, "127.0.0.1", resolve),
+      v4Blocker.listen(port, "127.0.0.1", resolve),
     );
+    // If the system has no IPv6, this listen will error — the OAuth flow
+    // then only needs the IPv4 stack free, which it isn't, so we still
+    // expect a reject. Either way, we expect the error.
+    await new Promise<void>((resolve) => {
+      v6Blocker.once("error", () => resolve());
+      v6Blocker.listen(port, "::1", resolve);
+    });
 
     try {
       await expect(
@@ -138,9 +146,53 @@ describe("runOAuthLogin", () => {
           timeoutMs: 1000,
           openBrowser: () => {},
         }),
-      ).rejects.toThrow(/port .* is in use/i);
+      ).rejects.toThrow(/(port .* is in use|bind to localhost)/i);
     } finally {
-      await closeServer(blocker);
+      await closeServer(v4Blocker);
+      await closeServer(v6Blocker);
+    }
+  });
+
+  it("succeeds on the IPv4 stack when only IPv6 is blocked", async () => {
+    const port = await freePort();
+    const v6Blocker = createServer();
+    let v6Bound = false;
+    await new Promise<void>((resolve) => {
+      v6Blocker.once("error", () => resolve());
+      v6Blocker.listen(port, "::1", () => {
+        v6Bound = true;
+        resolve();
+      });
+    });
+    if (!v6Bound) {
+      // Host doesn't support IPv6 — skip.
+      return;
+    }
+
+    let authorizeUrl: string | null = null;
+    const runPromise = runOAuthLogin({
+      endpoint: FAKE_ENDPOINT,
+      clientId: FAKE_CLIENT_ID,
+      port,
+      timeoutMs: 2000,
+      openBrowser: () => {},
+      onAuthorizeUrl: (url) => {
+        authorizeUrl = url;
+      },
+    });
+    runPromise.catch(() => {});
+
+    try {
+      await waitFor(() => authorizeUrl !== null, 1500);
+      // If maybeOpenBrowser fired at all, at least one stack was listening.
+      expect(authorizeUrl).not.toBeNull();
+      expect(new URL(authorizeUrl!).searchParams.get("redirect_uri")).toBe(
+        `http://localhost:${port}${OAUTH_CALLBACK_PATH}`,
+      );
+    } finally {
+      await closeServer(v6Blocker);
+      // Let the promise reject via timeout for clean teardown.
+      await runPromise.catch(() => {});
     }
   });
 });

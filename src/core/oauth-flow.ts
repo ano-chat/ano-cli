@@ -1,6 +1,8 @@
 import {
   createServer,
   type IncomingMessage,
+  type RequestListener,
+  type Server,
   type ServerResponse,
 } from "node:http";
 import { spawn } from "node:child_process";
@@ -108,12 +110,34 @@ async function captureAuthCode(opts: {
 }): Promise<{ code: string; redirectUri: string }> {
   return new Promise((resolve, reject) => {
     let settled = false;
-    const server = createServer();
+
+    // Track per-stack state so we only give up when BOTH stacks have failed.
+    // A single working stack is enough: modern browsers try both per RFC 8305
+    // and the one that connects wins.
+    type StackState = "pending" | "listening" | "down";
+    const state = { v4: "pending" as StackState, v6: "pending" as StackState };
+    let lastError: Error | null = null;
+
+    const handler: RequestListener = (req, res) => {
+      handleCallbackRequest(req, res, opts, {
+        onResolve: (result) => finish(() => resolve(result)),
+        onReject: (err) => finish(() => reject(err)),
+      });
+    };
+
+    // Dual-bind: browsers on macOS/modern Linux resolve "localhost" to ::1
+    // before 127.0.0.1. Binding only to IPv4 loses IPv6-first requests; binding
+    // only to IPv6 loses IPv4-only clients. Two servers, one handler, same port.
+    const v4 = createServer(handler);
+    const v6 = createServer(handler);
+
     const finish = (fn: () => void) => {
       if (settled) return;
       settled = true;
+      clearTimeout(timeout);
       fn();
-      server.close();
+      safeClose(v4);
+      safeClose(v6);
     };
 
     const timeout = setTimeout(() => {
@@ -122,66 +146,12 @@ async function captureAuthCode(opts: {
       );
     }, opts.timeoutMs);
 
-    server.on("request", (req: IncomingMessage, res: ServerResponse) => {
-      if (!req.url || !req.url.startsWith(OAUTH_CALLBACK_PATH)) {
-        res.writeHead(404, { "Content-Type": "text/plain" });
-        res.end("Not found");
-        return;
-      }
-      const url = new URL(req.url, "http://localhost");
-      const returnedState = url.searchParams.get("state");
-      const error = url.searchParams.get("error");
-      const errorDescription = url.searchParams.get("error_description");
-      const code = url.searchParams.get("code");
-
-      if (error) {
-        res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
-        res.end(ERROR_PAGE(errorDescription || error));
-        clearTimeout(timeout);
-        finish(() =>
-          reject(new Error(`OAuth error: ${errorDescription || error}`)),
-        );
-        return;
-      }
-      if (!code) {
-        res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
-        res.end(ERROR_PAGE("Missing authorization code."));
-        clearTimeout(timeout);
-        finish(() => reject(new Error("OAuth callback missing code")));
-        return;
-      }
-      if (returnedState !== opts.state) {
-        res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
-        res.end(ERROR_PAGE("State parameter mismatch — possible CSRF."));
-        clearTimeout(timeout);
-        finish(() => reject(new Error("OAuth state mismatch")));
-        return;
-      }
-
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-      res.end(SUCCESS_PAGE);
-
-      const redirectUri = `http://localhost:${opts.port}${OAUTH_CALLBACK_PATH}`;
-      clearTimeout(timeout);
-      finish(() => resolve({ code, redirectUri }));
-    });
-
-    server.on("error", (err: NodeJS.ErrnoException) => {
-      clearTimeout(timeout);
-      if (err.code === "EADDRINUSE") {
-        finish(() =>
-          reject(
-            new Error(
-              `OAuth loopback port ${opts.port} is in use. Free the port and retry, or pass --port <n> and allowlist the new URI in WorkOS.`,
-            ),
-          ),
-        );
-        return;
-      }
-      finish(() => reject(err));
-    });
-
-    server.listen(opts.port, "127.0.0.1", () => {
+    const maybeOpenBrowser = () => {
+      // Open once, as soon as at least one stack is listening.
+      if (settled) return;
+      if (state.v4 !== "listening" && state.v6 !== "listening") return;
+      if (openedBrowser) return;
+      openedBrowser = true;
       const redirectUri = `http://localhost:${opts.port}${OAUTH_CALLBACK_PATH}`;
       const authorizeUrl = buildAuthorizeUrl({
         endpoint: opts.endpoint,
@@ -189,12 +159,107 @@ async function captureAuthCode(opts: {
         redirectUri,
         state: opts.state,
       });
-      if (opts.onAuthorizeUrl) {
-        opts.onAuthorizeUrl(authorizeUrl);
-      }
+      opts.onAuthorizeUrl?.(authorizeUrl);
       opts.openBrowser(authorizeUrl);
+    };
+    let openedBrowser = false;
+
+    const maybeRejectIfBothDown = () => {
+      if (state.v4 === "down" && state.v6 === "down") {
+        const err =
+          lastError ??
+          new Error(
+            `Could not bind to localhost:${opts.port}. Free the port or pass --port <n>.`,
+          );
+        // If the error was EADDRINUSE on at least one stack, give the usable message.
+        finish(() => reject(err));
+      }
+    };
+
+    const makeErrorHandler =
+      (label: "v4" | "v6") => (err: NodeJS.ErrnoException) => {
+        state[label] = "down";
+        if (err.code === "EADDRINUSE") {
+          lastError = new Error(
+            `OAuth loopback port ${opts.port} is in use. Free the port and retry, or pass --port <n> and allowlist the new URI in WorkOS.`,
+          );
+        } else if (
+          err.code !== "EAFNOSUPPORT" &&
+          err.code !== "EADDRNOTAVAIL"
+        ) {
+          // Unexpected errors trump the EADDRINUSE message.
+          lastError = err;
+        }
+        maybeRejectIfBothDown();
+      };
+
+    v4.on("error", makeErrorHandler("v4"));
+    v6.on("error", makeErrorHandler("v6"));
+
+    v4.listen(opts.port, "127.0.0.1", () => {
+      state.v4 = "listening";
+      maybeOpenBrowser();
+    });
+    v6.listen(opts.port, "::1", () => {
+      state.v6 = "listening";
+      maybeOpenBrowser();
     });
   });
+}
+
+function handleCallbackRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  opts: { state: string; port: number },
+  sink: {
+    onResolve: (r: { code: string; redirectUri: string }) => void;
+    onReject: (err: Error) => void;
+  },
+): void {
+  if (!req.url || !req.url.startsWith(OAUTH_CALLBACK_PATH)) {
+    res.writeHead(404, { "Content-Type": "text/plain" });
+    res.end("Not found");
+    return;
+  }
+  const url = new URL(req.url, "http://localhost");
+  const returnedState = url.searchParams.get("state");
+  const error = url.searchParams.get("error");
+  const errorDescription = url.searchParams.get("error_description");
+  const code = url.searchParams.get("code");
+
+  if (error) {
+    res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(ERROR_PAGE(errorDescription || error));
+    sink.onReject(new Error(`OAuth error: ${errorDescription || error}`));
+    return;
+  }
+  if (!code) {
+    res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(ERROR_PAGE("Missing authorization code."));
+    sink.onReject(new Error("OAuth callback missing code"));
+    return;
+  }
+  if (returnedState !== opts.state) {
+    res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(ERROR_PAGE("State parameter mismatch — possible CSRF."));
+    sink.onReject(new Error("OAuth state mismatch"));
+    return;
+  }
+
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  res.end(SUCCESS_PAGE);
+  sink.onResolve({
+    code,
+    redirectUri: `http://localhost:${opts.port}${OAUTH_CALLBACK_PATH}`,
+  });
+}
+
+function safeClose(server: Server): void {
+  try {
+    server.close();
+  } catch {
+    // Server never listened (e.g. bind failed) — nothing to close.
+  }
 }
 
 async function exchangeCodeForToken(opts: {
@@ -251,21 +316,26 @@ async function exchangeCodeForToken(opts: {
 }
 
 function defaultOpenBrowser(url: string): void {
-  const platform = process.platform;
+  const spawnOpts = { stdio: "ignore" as const, detached: true };
+  let child;
   try {
-    if (platform === "darwin") {
-      spawn("open", [url], { stdio: "ignore", detached: true }).unref();
-    } else if (platform === "win32") {
-      spawn("cmd", ["/c", "start", "", url], {
-        stdio: "ignore",
-        detached: true,
-      }).unref();
+    if (process.platform === "darwin") {
+      child = spawn("open", [url], spawnOpts);
+    } else if (process.platform === "win32") {
+      child = spawn("cmd", ["/c", "start", "", url], spawnOpts);
     } else {
-      spawn("xdg-open", [url], { stdio: "ignore", detached: true }).unref();
+      child = spawn("xdg-open", [url], spawnOpts);
     }
   } catch {
-    // User can still paste the URL manually — caller logs it
+    // Synchronous spawn failure — swallow (user has URL to click).
+    return;
   }
+  // ChildProcess emits 'error' async if the binary is missing (ENOENT).
+  // Without a listener, Node crashes the process with "Unhandled 'error' event".
+  child.on("error", () => {
+    // User can paste the URL manually — caller logs it.
+  });
+  child.unref();
 }
 
 function stripTrailingSlash(s: string): string {

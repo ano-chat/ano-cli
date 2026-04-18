@@ -247,10 +247,12 @@ function saveProfile(opts: {
   workspaceName: string;
 }): void {
   const creds = loadGlobalCredentials() ?? { profiles: {} };
+  const normalized = stripTrailingSlash(opts.endpoint);
   creds.profiles[opts.profile] = {
     key: opts.key,
-    endpoint:
-      opts.endpoint !== "https://api.ano.dev" ? opts.endpoint : undefined,
+    // Omit the endpoint for the default (prod) host so the profile stays
+    // endpoint-agnostic and picks up any future default changes.
+    endpoint: normalized === "https://api.ano.dev" ? undefined : normalized,
     workspace_name: opts.workspaceName,
     created_at: new Date().toISOString(),
   };
