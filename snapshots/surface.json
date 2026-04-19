@@ -2,9 +2,10 @@
   {
     "command": "auth login",
     "flags": [
-      "--endpoint",
-      "--key",
-      "--profile"
+      "--client-id",
+      "--port",
+      "--profile",
+      "--workspace-id"
     ],
     "args": []
   },
@@ -46,7 +47,7 @@
   {
     "command": "connect uninstall-service",
     "flags": [
-      "--workspace"
+      "--service-name"
     ],
     "args": []
   },
@@ -115,6 +116,71 @@
     "flags": [],
     "args": [
       "url"
+    ]
+  },
+  {
+    "command": "tables comment",
+    "flags": [],
+    "args": [
+      "item-id",
+      "body"
+    ]
+  },
+  {
+    "command": "tables create",
+    "flags": [
+      "--color",
+      "--description",
+      "--icon",
+      "--prefix",
+      "--template"
+    ],
+    "args": [
+      "name"
+    ]
+  },
+  {
+    "command": "tables create-item",
+    "flags": [
+      "--fields",
+      "--table"
+    ],
+    "args": []
+  },
+  {
+    "command": "tables get",
+    "flags": [],
+    "args": [
+      "table-id"
+    ]
+  },
+  {
+    "command": "tables list",
+    "flags": [],
+    "args": []
+  },
+  {
+    "command": "tables query",
+    "flags": [
+      "--cursor",
+      "--filter",
+      "--include-archived",
+      "--limit",
+      "--sort"
+    ],
+    "args": [
+      "table-id"
+    ]
+  },
+  {
+    "command": "tables update-item",
+    "flags": [
+      "--archive",
+      "--fields",
+      "--unarchive"
+    ],
+    "args": [
+      "item-id"
     ]
   },
   {
