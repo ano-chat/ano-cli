@@ -7,6 +7,7 @@ import {
 } from "../../../core/config.js";
 import { createApiClient } from "../../../core/api-client.js";
 import { runOAuthLogin } from "../../../core/oauth-flow.js";
+import { saveSession } from "../../../core/oauth-session.js";
 import { bold, cyan, dim, green } from "../../../util/colors.js";
 
 const DEFAULT_CLIENT_IDS: Record<string, string> = {
@@ -38,6 +39,14 @@ export function registerAuthLogin(parent: Command): void {
       "Loopback port for the OAuth callback (must be allowlisted in WorkOS)",
       (v) => Number.parseInt(v, 10),
     )
+    .option(
+      "--print-workspaces",
+      "Run OAuth, cache the access token to ~/.config/ano/.session, print " +
+        "available workspaces as a single JSON line on stdout, and exit " +
+        "without minting a key. Pair with `ano auth complete --workspace-id " +
+        "<id>` to finish the install. Useful for non-TTY orchestrators that " +
+        "want to render their own workspace picker (e.g. Claude Code).",
+    )
     .action(
       withErrorHandler(async (opts, cmd) => {
         const globals = cmd.optsWithGlobals();
@@ -45,6 +54,12 @@ export function registerAuthLogin(parent: Command): void {
         const key = globals.key ?? process.env.ANO_API_KEY;
 
         if (key) {
+          if (opts.printWorkspaces) {
+            console.error(
+              "Error: --print-workspaces is incompatible with --key / ANO_API_KEY (no OAuth flow runs in that mode).",
+            );
+            process.exit(1);
+          }
           await saveValidatedKey({
             key,
             endpoint,
@@ -64,16 +79,23 @@ export function registerAuthLogin(parent: Command): void {
           process.exit(1);
         }
 
-        console.log(bold("Signing in to Ano..."));
+        // For --print-workspaces we want stdout to be ONLY the JSON line so
+        // orchestrators can JSON.parse it cleanly. Suppress all human-prose
+        // logs in that mode (still surface errors to stderr).
+        const log = opts.printWorkspaces ? () => {} : console.log;
+
+        log(bold("Signing in to Ano..."));
         const oauth = await runOAuthLogin({
           endpoint,
           clientId,
           port: opts.port,
-          onAuthorizeUrl: (url) => {
-            console.log(
-              `${dim("If the browser doesn't open, visit:")}\n  ${cyan(url)}`,
-            );
-          },
+          onAuthorizeUrl: opts.printWorkspaces
+            ? undefined
+            : (url) => {
+                console.log(
+                  `${dim("If the browser doesn't open, visit:")}\n  ${cyan(url)}`,
+                );
+              },
         });
 
         const workspaces = await listWorkspaces({
@@ -85,6 +107,29 @@ export function registerAuthLogin(parent: Command): void {
             "Error: signed in, but this account has no workspaces.",
           );
           process.exit(1);
+        }
+
+        if (opts.printWorkspaces) {
+          // Cache the token so `auth complete` can mint without re-running
+          // OAuth. 5-minute TTL, mode 0o600.
+          saveSession({
+            accessToken: oauth.accessToken,
+            endpoint,
+            clientId,
+            createdAt: Date.now(),
+            userId: oauth.user?.id,
+          });
+          // Single JSON line on stdout — easiest to parse for orchestrators.
+          process.stdout.write(
+            JSON.stringify({
+              workspaces: workspaces.map((w) => ({
+                id: w.id,
+                name: w.name,
+                logo_url: w.logo_url ?? null,
+              })),
+            }) + "\n",
+          );
+          return;
         }
 
         const workspace = await pickWorkspace({

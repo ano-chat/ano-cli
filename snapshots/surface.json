@@ -1,9 +1,18 @@
 [
   {
+    "command": "auth complete",
+    "flags": [
+      "--profile",
+      "--workspace-id"
+    ],
+    "args": []
+  },
+  {
     "command": "auth login",
     "flags": [
       "--client-id",
       "--port",
+      "--print-workspaces",
       "--profile",
       "--workspace-id"
     ],
