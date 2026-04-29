@@ -8,6 +8,8 @@ import {
 import { createApiClient } from "../../../core/api-client.js";
 import { runOAuthLogin } from "../../../core/oauth-flow.js";
 import { saveSession } from "../../../core/oauth-session.js";
+import { AnoCliError } from "../../../core/errors.js";
+import { ExitCode } from "../../types.js";
 import { bold, cyan, dim, green } from "../../../util/colors.js";
 
 const DEFAULT_CLIENT_IDS: Record<string, string> = {
@@ -55,10 +57,10 @@ export function registerAuthLogin(parent: Command): void {
 
         if (key) {
           if (opts.printWorkspaces) {
-            console.error(
-              "Error: --print-workspaces is incompatible with --key / ANO_API_KEY (no OAuth flow runs in that mode).",
+            throw new AnoCliError(
+              "--print-workspaces is incompatible with --key / ANO_API_KEY (no OAuth flow runs in that mode).",
+              ExitCode.USAGE,
             );
-            process.exit(1);
           }
           await saveValidatedKey({
             key,
@@ -73,10 +75,10 @@ export function registerAuthLogin(parent: Command): void {
           process.env.ANO_WORKOS_CLIENT_ID ??
           DEFAULT_CLIENT_IDS[stripTrailingSlash(endpoint)];
         if (!clientId) {
-          console.error(
-            `Error: no WorkOS client ID configured for ${endpoint}. Pass --client-id or set ANO_WORKOS_CLIENT_ID.`,
+          throw new AnoCliError(
+            `no WorkOS client ID configured for ${endpoint}. Pass --client-id or set ANO_WORKOS_CLIENT_ID.`,
+            ExitCode.USAGE,
           );
-          process.exit(1);
         }
 
         // For --print-workspaces we want stdout to be ONLY the JSON line so
@@ -131,10 +133,10 @@ export function registerAuthLogin(parent: Command): void {
 
         // Interactive flow only — orchestrator path handled above.
         if (workspaces.length === 0) {
-          console.error(
-            "Error: signed in, but this account has no workspaces.",
+          throw new AnoCliError(
+            "signed in, but this account has no workspaces.",
+            ExitCode.NOT_FOUND,
           );
-          process.exit(1);
         }
 
         const workspace = await pickWorkspace({
