@@ -163,11 +163,16 @@ function atomicWriteSecret(targetPath: string, data: string): void {
     if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
   }
 
+  // O_NOFOLLOW is POSIX-only — undefined on Windows, where bitwise-OR'ing
+  // it would produce NaN and crash openSync. Coerce to 0 (no-op) so the
+  // call still works on Windows. The lstat check above is the primary
+  // symlink defense; on Windows symlinks require admin to create, so the
+  // attack surface is much smaller.
   const flags =
     fsConstants.O_WRONLY |
     fsConstants.O_CREAT |
     fsConstants.O_EXCL |
-    fsConstants.O_NOFOLLOW;
+    (fsConstants.O_NOFOLLOW ?? 0);
   const fd = openSync(tmp, flags, 0o600);
   try {
     writeSync(fd, data);
