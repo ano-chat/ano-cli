@@ -5,6 +5,7 @@ import {
   loadGlobalCredentials,
 } from "../../../core/config.js";
 import { loadSession, deleteSession } from "../../../core/oauth-session.js";
+import { AuthError, NotFoundError } from "../../../core/errors.js";
 import { green } from "../../../util/colors.js";
 
 interface WorkspaceRow {
@@ -40,12 +41,11 @@ export function registerAuthComplete(parent: Command): void {
       withErrorHandler(async (opts) => {
         const session = loadSession();
         if (!session) {
-          console.error(
-            "Error: no cached login session found (or it expired). " +
+          throw new AuthError(
+            "no cached login session found (or it expired). " +
               "Run `ano auth login --print-workspaces` first, then `auth complete` " +
               "within 5 minutes.",
           );
-          process.exit(3); // AUTH
         }
 
         const { accessToken, endpoint } = session;
@@ -56,10 +56,9 @@ export function registerAuthComplete(parent: Command): void {
         const workspaces = await listWorkspaces({ endpoint, accessToken });
         const workspace = workspaces.find((w) => w.id === opts.workspaceId);
         if (!workspace) {
-          console.error(
-            `Error: workspace ${opts.workspaceId} is not in this account's memberships.`,
+          throw new NotFoundError(
+            `workspace ${opts.workspaceId} is not in this account's memberships.`,
           );
-          process.exit(2); // NOT_FOUND
         }
 
         const apiKey = await mintCliKey({

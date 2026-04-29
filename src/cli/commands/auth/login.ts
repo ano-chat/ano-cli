@@ -102,16 +102,14 @@ export function registerAuthLogin(parent: Command): void {
           endpoint,
           accessToken: oauth.accessToken,
         });
-        if (workspaces.length === 0) {
-          console.error(
-            "Error: signed in, but this account has no workspaces.",
-          );
-          process.exit(1);
-        }
 
         if (opts.printWorkspaces) {
-          // Cache the token so `auth complete` can mint without re-running
-          // OAuth. 5-minute TTL, mode 0o600.
+          // The contract for orchestrators is "stdout is always one JSON
+          // line; exit code 0 = success." So even with zero memberships
+          // we emit `{"workspaces":[]}` and exit 0; the orchestrator
+          // surfaces an empty-account message in its own UI. Sessions
+          // are still cached so `auth complete` can be re-run if the
+          // user joins a workspace within the 5-minute TTL.
           saveSession({
             accessToken: oauth.accessToken,
             endpoint,
@@ -119,7 +117,6 @@ export function registerAuthLogin(parent: Command): void {
             createdAt: Date.now(),
             userId: oauth.user?.id,
           });
-          // Single JSON line on stdout — easiest to parse for orchestrators.
           process.stdout.write(
             JSON.stringify({
               workspaces: workspaces.map((w) => ({
@@ -130,6 +127,14 @@ export function registerAuthLogin(parent: Command): void {
             }) + "\n",
           );
           return;
+        }
+
+        // Interactive flow only — orchestrator path handled above.
+        if (workspaces.length === 0) {
+          console.error(
+            "Error: signed in, but this account has no workspaces.",
+          );
+          process.exit(1);
         }
 
         const workspace = await pickWorkspace({
