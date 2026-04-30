@@ -11,7 +11,10 @@ npm install -g @ano-chat/cli
 ## Quick Start
 
 ```bash
-# Authenticate
+# Authenticate (browser-based — opens your default browser)
+ano auth login
+
+# …or paste an API key directly
 ano auth login --key ano_cwk_your_api_key
 
 # Explore your workspace
@@ -26,6 +29,26 @@ ano messages search "deployment failed"
 # Send a DM
 ano dm send "Can you review PR #42?" --to "Jane"
 ```
+
+### Non-TTY orchestration (Claude Code, scripts)
+
+When the CLI is driven by an orchestrator without a real TTY, the
+interactive workspace picker can't run. Use the two-step flow instead
+— the orchestrator renders its own picker between the two calls:
+
+```bash
+# Step 1: run OAuth, cache the access token, print available workspaces
+# as a single JSON line on stdout (the orchestrator parses this).
+ano auth login --print-workspaces
+
+# Step 2: orchestrator renders a picker, captures user's choice, then:
+ano auth complete --workspace-id <picked-id>
+```
+
+The cached token at `~/.config/ano/.session` has a 5-minute TTL and is
+deleted automatically after `auth complete` succeeds. See
+[`packages/skills/skills/ano-cli/SKILL.md`](packages/skills/skills/ano-cli/SKILL.md)
+for the full agent-orchestration recipe.
 
 ## Why Ano CLI?
 
