@@ -58,15 +58,21 @@ export function registerAuthComplete(parent: Command): void {
           workspaceId: workspace.id,
         });
 
-        saveProfile({
-          profile: opts.profile,
-          key: apiKey,
-          endpoint,
-          workspaceName: workspace.name,
-        });
-
-        // Single-shot: drop the cached token now that we've used it.
-        deleteSession();
+        // Drop the cached token in a finally so the session is single-shot
+        // even if saveProfile throws (disk full, permissions, etc.). If we
+        // didn't, the next `auth complete` would re-load the stale session
+        // and re-mint, wasting an HTTP call and triggering the server's
+        // auto-revoke against the key we just minted.
+        try {
+          saveProfile({
+            profile: opts.profile,
+            key: apiKey,
+            endpoint,
+            workspaceName: workspace.name,
+          });
+        } finally {
+          deleteSession();
+        }
 
         // JSON line on stdout — orchestrators get a clean machine-parseable
         // success signal. Humans running this directly still get a clear
