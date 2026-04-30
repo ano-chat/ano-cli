@@ -1,24 +1,24 @@
 import { Command } from "commander";
 import { createInterface } from "node:readline/promises";
 import { withErrorHandler } from "../../middleware/error-handler.js";
-import {
-  saveGlobalCredentials,
-  loadGlobalCredentials,
-} from "../../../core/config.js";
 import { createApiClient } from "../../../core/api-client.js";
 import { runOAuthLogin } from "../../../core/oauth-flow.js";
+import { saveSession } from "../../../core/oauth-session.js";
+import { AnoCliError } from "../../../core/errors.js";
+import { ExitCode } from "../../types.js";
 import { bold, cyan, dim, green } from "../../../util/colors.js";
+import {
+  listWorkspaces,
+  mintCliKey,
+  saveProfile,
+  stripTrailingSlash,
+  type WorkspaceRow,
+} from "./auth-helpers.js";
 
 const DEFAULT_CLIENT_IDS: Record<string, string> = {
   "https://api-staging.ano.dev": "client_01KG774HCH15HC3EN79E7A9BV4",
   "https://api.ano.dev": "client_01KG774HCH15HC3EN79E7A9BV4",
 };
-
-interface WorkspaceRow {
-  id: string;
-  name: string;
-  logo_url?: string | null;
-}
 
 export function registerAuthLogin(parent: Command): void {
   parent
@@ -38,6 +38,14 @@ export function registerAuthLogin(parent: Command): void {
       "Loopback port for the OAuth callback (must be allowlisted in WorkOS)",
       (v) => Number.parseInt(v, 10),
     )
+    .option(
+      "--print-workspaces",
+      "Run OAuth, cache the access token to ~/.config/ano/.session, print " +
+        "available workspaces as a single JSON line on stdout, and exit " +
+        "without minting a key. Pair with `ano auth complete --workspace-id " +
+        "<id>` to finish the install. Useful for non-TTY orchestrators that " +
+        "want to render their own workspace picker (e.g. Claude Code).",
+    )
     .action(
       withErrorHandler(async (opts, cmd) => {
         const globals = cmd.optsWithGlobals();
@@ -45,6 +53,12 @@ export function registerAuthLogin(parent: Command): void {
         const key = globals.key ?? process.env.ANO_API_KEY;
 
         if (key) {
+          if (opts.printWorkspaces) {
+            throw new AnoCliError(
+              "--print-workspaces is incompatible with --key / ANO_API_KEY (no OAuth flow runs in that mode).",
+              ExitCode.USAGE,
+            );
+          }
           await saveValidatedKey({
             key,
             endpoint,
@@ -58,33 +72,68 @@ export function registerAuthLogin(parent: Command): void {
           process.env.ANO_WORKOS_CLIENT_ID ??
           DEFAULT_CLIENT_IDS[stripTrailingSlash(endpoint)];
         if (!clientId) {
-          console.error(
-            `Error: no WorkOS client ID configured for ${endpoint}. Pass --client-id or set ANO_WORKOS_CLIENT_ID.`,
+          throw new AnoCliError(
+            `no WorkOS client ID configured for ${endpoint}. Pass --client-id or set ANO_WORKOS_CLIENT_ID.`,
+            ExitCode.USAGE,
           );
-          process.exit(1);
         }
 
-        console.log(bold("Signing in to Ano..."));
+        // For --print-workspaces we want stdout to be ONLY the JSON line so
+        // orchestrators can JSON.parse it cleanly. Suppress all human-prose
+        // logs in that mode (still surface errors to stderr).
+        const log = opts.printWorkspaces ? () => {} : console.log;
+
+        log(bold("Signing in to Ano..."));
         const oauth = await runOAuthLogin({
           endpoint,
           clientId,
           port: opts.port,
-          onAuthorizeUrl: (url) => {
-            console.log(
-              `${dim("If the browser doesn't open, visit:")}\n  ${cyan(url)}`,
-            );
-          },
+          onAuthorizeUrl: opts.printWorkspaces
+            ? undefined
+            : (url) => {
+                console.log(
+                  `${dim("If the browser doesn't open, visit:")}\n  ${cyan(url)}`,
+                );
+              },
         });
 
         const workspaces = await listWorkspaces({
           endpoint,
           accessToken: oauth.accessToken,
         });
-        if (workspaces.length === 0) {
-          console.error(
-            "Error: signed in, but this account has no workspaces.",
+
+        if (opts.printWorkspaces) {
+          // The contract for orchestrators is "stdout is always one JSON
+          // line; exit code 0 = success." So even with zero memberships
+          // we emit `{"workspaces":[]}` and exit 0; the orchestrator
+          // surfaces an empty-account message in its own UI. Sessions
+          // are still cached so `auth complete` can be re-run if the
+          // user joins a workspace within the 5-minute TTL.
+          saveSession({
+            accessToken: oauth.accessToken,
+            endpoint,
+            clientId,
+            createdAt: Date.now(),
+            userId: oauth.user?.id,
+          });
+          process.stdout.write(
+            JSON.stringify({
+              workspaces: workspaces.map((w) => ({
+                id: w.id,
+                name: w.name,
+                logo_url: w.logo_url ?? null,
+              })),
+            }) + "\n",
           );
-          process.exit(1);
+          return;
+        }
+
+        // Interactive flow only — orchestrator path handled above.
+        if (workspaces.length === 0) {
+          throw new AnoCliError(
+            "signed in, but this account has no workspaces.",
+            ExitCode.NOT_FOUND,
+          );
         }
 
         const workspace = await pickWorkspace({
@@ -147,26 +196,6 @@ async function saveValidatedKey(opts: {
   );
 }
 
-async function listWorkspaces(opts: {
-  endpoint: string;
-  accessToken: string;
-}): Promise<WorkspaceRow[]> {
-  const res = await fetch(
-    `${stripTrailingSlash(opts.endpoint)}/api/cli-keys/workspaces`,
-    {
-      headers: { Authorization: `Bearer ${opts.accessToken}` },
-    },
-  );
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(
-      `Failed to list workspaces: ${res.status}${text ? ` ${text}` : ""}`,
-    );
-  }
-  const body = (await res.json()) as { workspaces?: WorkspaceRow[] };
-  return body.workspaces ?? [];
-}
-
 async function pickWorkspace(opts: {
   workspaces: WorkspaceRow[];
   requestedId?: string;
@@ -212,53 +241,4 @@ async function pickWorkspace(opts: {
   } finally {
     rl.close();
   }
-}
-
-async function mintCliKey(opts: {
-  endpoint: string;
-  accessToken: string;
-  workspaceId: string;
-}): Promise<string> {
-  const res = await fetch(`${stripTrailingSlash(opts.endpoint)}/api/cli-keys`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${opts.accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ workspace_id: opts.workspaceId }),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(
-      `Failed to mint CLI key: ${res.status}${text ? ` ${text}` : ""}`,
-    );
-  }
-  const body = (await res.json()) as { api_key?: string };
-  if (!body.api_key) {
-    throw new Error("CLI key response was missing api_key");
-  }
-  return body.api_key;
-}
-
-function saveProfile(opts: {
-  profile: string;
-  key: string;
-  endpoint: string;
-  workspaceName: string;
-}): void {
-  const creds = loadGlobalCredentials() ?? { profiles: {} };
-  const normalized = stripTrailingSlash(opts.endpoint);
-  creds.profiles[opts.profile] = {
-    key: opts.key,
-    // Omit the endpoint for the default (prod) host so the profile stays
-    // endpoint-agnostic and picks up any future default changes.
-    endpoint: normalized === "https://api.ano.dev" ? undefined : normalized,
-    workspace_name: opts.workspaceName,
-    created_at: new Date().toISOString(),
-  };
-  saveGlobalCredentials(creds);
-}
-
-function stripTrailingSlash(s: string): string {
-  return s.endsWith("/") ? s.slice(0, -1) : s;
 }
