@@ -13,6 +13,7 @@ import { registerCommands } from "./commands/commands.js";
 import { registerTables } from "./commands/tables/index.js";
 import { registerAutomations } from "./commands/automations/index.js";
 import { registerNew } from "./commands/new/index.js";
+import { registerEdit } from "./commands/edit/index.js";
 
 export function registerAllCommands(program: Command): void {
   registerAuth(program);
@@ -24,6 +25,7 @@ export function registerAllCommands(program: Command): void {
   registerTables(program);
   registerAutomations(program);
   registerNew(program);
+  registerEdit(program);
   registerConnect(program);
   registerSetup(program);
   registerDoctor(program);
