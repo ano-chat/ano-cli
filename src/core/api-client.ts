@@ -185,6 +185,78 @@ export interface AnoApiClient {
     item_id: string;
     body: string;
   }): Promise<TableItemComment>;
+
+  // ── Automations (parity with MCP server-tools-automations) ──────────
+  automationCompile(opts: { prompt: string; workspace_id?: string }): Promise<{
+    compiled: {
+      trigger_type: string;
+      trigger_config: Record<string, unknown>;
+      actions: Array<{ tool: string; args: Record<string, unknown> }>;
+      name: string;
+      sender_kind?: string;
+      coworker_id?: string;
+      bot_avatar?: string;
+    };
+    warnings: Array<{ step: number; code: string; message: string }>;
+  }>;
+  automationCreateCompiled(opts: {
+    workspace_id?: string;
+    name: string;
+    trigger_type: string;
+    trigger_config?: Record<string, unknown>;
+    actions: Array<{ tool: string; args: Record<string, unknown> }>;
+    visibility?: "personal" | "workspace";
+    sender_kind?: "bot" | "coworker" | "human";
+    coworker_id?: string;
+    bot_avatar?: string;
+    prompt?: string;
+  }): Promise<{
+    id: string;
+    name: string;
+    trigger_type: string;
+    status: string;
+  }>;
+  automationCreateFromText(opts: {
+    prompt: string;
+    workspace_id?: string;
+    visibility?: "personal" | "workspace";
+  }): Promise<{
+    id: string;
+    name: string;
+    trigger_type: string;
+    status: string;
+    warnings?: unknown[];
+  }>;
+  automationList(opts: { workspace_id?: string }): Promise<{
+    automations: Array<{
+      id: string;
+      name: string;
+      description?: string;
+      trigger_type: string;
+      status: string;
+      enabled: boolean;
+      visibility: string;
+      run_count: number;
+    }>;
+  }>;
+  automationRuns(opts: { automation_id: string; limit?: number }): Promise<{
+    runs: Array<{
+      id: string;
+      version: number;
+      started_at: string;
+      finished_at?: string;
+      status: string;
+      duration_ms?: number;
+      error?: string;
+    }>;
+  }>;
+  automationPause(opts: {
+    automation_id: string;
+    enabled: boolean;
+  }): Promise<{ id: string; name: string; enabled: boolean }>;
+  automationDelete(opts: {
+    automation_id: string;
+  }): Promise<{ id: string; deleted: string }>;
 }
 
 export function createApiClient(auth: ResolvedAuth): AnoApiClient {
@@ -265,6 +337,16 @@ export function createApiClient(auth: ResolvedAuth): AnoApiClient {
     createTableItem: (opts) => post("/create_table_item", opts),
     updateTableItem: (opts) => post("/update_table_item", opts),
     addTableItemComment: (opts) => post("/add_table_item_comment", opts),
+
+    automationCompile: (opts) => post("/automation_compile", opts),
+    automationCreateCompiled: (opts) =>
+      post("/automation_create_compiled", opts as Record<string, unknown>),
+    automationCreateFromText: (opts) =>
+      post("/automation_create_from_text", opts as Record<string, unknown>),
+    automationList: (opts) => post("/automation_list", opts),
+    automationRuns: (opts) => post("/automation_runs", opts),
+    automationPause: (opts) => post("/automation_pause", opts),
+    automationDelete: (opts) => post("/automation_delete", opts),
   };
 }
 
