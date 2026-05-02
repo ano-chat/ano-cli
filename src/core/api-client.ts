@@ -257,6 +257,14 @@ export interface AnoApiClient {
   automationDelete(opts: {
     automation_id: string;
   }): Promise<{ id: string; deleted: string }>;
+  automationWebhookSetup(opts: { automation_id: string }): Promise<{
+    url: string;
+    secret: string;
+    signature_header: string;
+    timestamp_header: string;
+    signing_format: string;
+    notes: string;
+  }>;
 }
 
 export function createApiClient(auth: ResolvedAuth): AnoApiClient {
@@ -347,6 +355,7 @@ export function createApiClient(auth: ResolvedAuth): AnoApiClient {
     automationRuns: (opts) => post("/automation_runs", opts),
     automationPause: (opts) => post("/automation_pause", opts),
     automationDelete: (opts) => post("/automation_delete", opts),
+    automationWebhookSetup: (opts) => post("/automation_webhook_setup", opts),
   };
 }
 
