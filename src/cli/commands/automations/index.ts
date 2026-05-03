@@ -6,6 +6,7 @@ import { registerAutomationList } from "./list.js";
 import { registerAutomationRuns } from "./runs.js";
 import { registerAutomationPause } from "./pause.js";
 import { registerAutomationDelete } from "./delete.js";
+import { registerAutomationUpdate } from "./update.js";
 import { registerAutomationWebhookSetup } from "./webhook-setup.js";
 
 export function registerAutomations(parent: Command): void {
@@ -15,6 +16,7 @@ export function registerAutomations(parent: Command): void {
   registerAutomationCompile(group);
   registerAutomationCreate(group);
   registerAutomationCreateCompiled(group);
+  registerAutomationUpdate(group);
   registerAutomationList(group);
   registerAutomationRuns(group);
   registerAutomationPause(group);
