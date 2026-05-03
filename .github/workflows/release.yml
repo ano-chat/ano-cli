@@ -23,3 +23,62 @@ jobs:
       - run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Bump MIN_CLI_VERSION on Ano staging so the in-app upgrade banner
+      # fires for any user running below the version we just shipped.
+      # The version comes from the tag (`v2.4.0` → `2.4.0`).
+      #
+      # Requires `DOPPLER_TOKEN_STAGING` secret in the repo with at least
+      # `secrets:write` scope on project `ano`, config `stg`. Failure is
+      # non-blocking (warn-only) so a missing/expired token never blocks
+      # an npm publish — the manual fallback is documented below.
+      - name: Bump MIN_CLI_VERSION on staging
+        if: ${{ env.DOPPLER_TOKEN != '' }}
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN_STAGING }}
+        run: |
+          set -uo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$ ]]; then
+            echo "::warning::tag '$GITHUB_REF_NAME' isn't a clean semver — skipping MIN_CLI_VERSION bump."
+            exit 0
+          fi
+          echo "Setting MIN_CLI_VERSION=$VERSION on ano/stg via Doppler API…"
+          curl -fsS -X POST \
+            "https://api.doppler.com/v3/configs/config/secrets" \
+            -H "Authorization: Bearer ${DOPPLER_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"project\":\"ano\",\"config\":\"stg\",\"secrets\":{\"MIN_CLI_VERSION\":\"${VERSION}\"}}" \
+            || {
+              echo "::warning::Doppler bump failed — set MIN_CLI_VERSION manually:"
+              echo "::warning::  doppler secrets set MIN_CLI_VERSION=$VERSION --project ano --config stg"
+              exit 0
+            }
+          echo "✓ MIN_CLI_VERSION=$VERSION set on ano/stg."
+
+      # Production bump runs the same way on the `prd` config. Gated
+      # behind a separate token so the staging bump can fail without
+      # affecting prod, and so prod requires its own approval flow.
+      - name: Bump MIN_CLI_VERSION on production
+        if: ${{ env.DOPPLER_TOKEN != '' }}
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN_PRODUCTION }}
+        run: |
+          set -uo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$ ]]; then
+            echo "::warning::tag '$GITHUB_REF_NAME' isn't a clean semver — skipping prod bump."
+            exit 0
+          fi
+          echo "Setting MIN_CLI_VERSION=$VERSION on ano/prd via Doppler API…"
+          curl -fsS -X POST \
+            "https://api.doppler.com/v3/configs/config/secrets" \
+            -H "Authorization: Bearer ${DOPPLER_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"project\":\"ano\",\"config\":\"prd\",\"secrets\":{\"MIN_CLI_VERSION\":\"${VERSION}\"}}" \
+            || {
+              echo "::warning::Doppler prod bump failed — set MIN_CLI_VERSION manually:"
+              echo "::warning::  doppler secrets set MIN_CLI_VERSION=$VERSION --project ano --config prd"
+              exit 0
+            }
+          echo "✓ MIN_CLI_VERSION=$VERSION set on ano/prd."
