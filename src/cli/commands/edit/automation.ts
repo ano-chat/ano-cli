@@ -19,37 +19,17 @@ import { resolveAuth } from "../../../core/auth.js";
 import { createApiClient } from "../../../core/api-client.js";
 import type { GlobalOptions } from "../../types.js";
 
-const BOOTSTRAP_HEADER = [
-  "**You are helping me edit an existing Ano automation.** An Ano automation is a recurring job that lives in my Ano workspace and runs 24/7 on Ano's servers.",
+const SYSTEM_PROMPT = [
+  "Help the user edit an existing Ano automation in place.",
   "",
-  "## What you must NOT do",
-  "Do NOT invoke any of these CC built-ins: `schedule` skill, `CronCreate`, `CronList`, `CronDelete`, `ScheduleWakeup`, or any cron/loop primitive. Use Ano's MCP tools only.",
+  "Use `automation_update` (preserves id, run history, webhook URL). Pass only the fields that changed.",
   "",
-  "Do NOT call `automation_compile` or `automation_create_from_text` — you're an LLM, compile the updated plan yourself.",
+  "Exception — fall back to `automation_delete` + `automation_create_compiled` + (if webhook) `automation_webhook_setup` ONLY when changing `trigger_type` to/from `webhook`. Otherwise always update.",
   "",
-  "## How edits work",
-  "Use the `automation_update` MCP tool. It applies edits **in place** — the automation id stays the same, run history is preserved, and the webhook URL keeps working. Pass only the fields that changed (name, trigger_type, trigger_config, actions, visibility, enabled). Unspecified fields keep their current value.",
+  "DO NOT use: `schedule` skill, `CronCreate`/`CronList`/`CronDelete`, `ScheduleWakeup`, `automation_compile`, `automation_create_from_text`.",
   "",
-  "Exceptions where you should fall back to delete-then-recreate (`automation_delete` → `automation_create_compiled` → `automation_webhook_setup` if webhook):",
-  "- The user wants to change `trigger_type` **to** `webhook` (need to mint a fresh URL + secret).",
-  "- The user wants to change `trigger_type` **from** `webhook` to something else (the old URL becomes meaningless and should be invalidated).",
-  "",
-  "Otherwise prefer `automation_update`.",
-  "",
-  "## Your job",
-  "Walk me through the edit, **one question at a time**:",
-  "",
-  "1. **Show + ask** — show me a short readable summary of the current automation (NOT raw JSON), then ask what I want to change.",
-  "2. **Build the diff** — apply my changes to the existing plan; only the fields that actually differ go into the `automation_update` payload.",
-  '3. **Confirm** — show the change in plain English ("Trigger stays the same, channel changes from #growth to #growth-eu"), and ask me to confirm. Only mention run-history loss / webhook URL change if you have to fall back to delete-then-recreate (per the exceptions above).',
-  "4. **Apply** — call `automation_update` with just the changed fields. (Or, for the webhook trigger-type changes only, do delete-then-recreate.)",
-  "5. **Confirm done** — tell me the edit is live.",
-  "",
-  "## Constraints",
-  "- One question per turn. Plain language. Short responses.",
-  "- Reference the automation by name when talking to me, not by id.",
-  "- Only pass the fields that changed to `automation_update` — don't echo back the entire plan.",
-];
+  "Flow: show the current automation in plain English (not JSON), ask what to change, confirm the diff, apply via `automation_update`. One short question per turn. Reference the automation by name, not id.",
+].join("\n");
 
 export function registerEditAutomation(parent: Command): void {
   parent
@@ -83,32 +63,30 @@ export function registerEditAutomation(parent: Command): void {
       }
 
       const userIntent = (request ?? []).join(" ").trim();
-      const promptParts = [
-        ...BOOTSTRAP_HEADER,
-        "",
-        `## Current automation (id: ${id})`,
-        "",
+      const userPrompt = [
+        `Current automation (id: ${id}):`,
         "```json",
         JSON.stringify(current, null, 2),
         "```",
         "",
-      ];
-      if (userIntent) {
-        promptParts.push(
-          "## My change request",
-          "",
-          userIntent,
-          "",
-          "Use this as your starting context — confirm you understand what I want, ask any follow-up questions one at a time, then move through the workflow above.",
-        );
-      } else {
-        promptParts.push(
-          "Now show me the current automation in plain English (not JSON) and ask what I want to change.",
-        );
-      }
-      const prompt = promptParts.join("\n");
+        userIntent
+          ? `My change request: ${userIntent}\n\nConfirm you understand, then move through the flow.`
+          : "Show me the current automation in plain English (not JSON) and ask what I want to change.",
+      ].join("\n");
 
-      const child = spawn("claude", [prompt], {
+      // Speed: Haiku + low effort + skip slash skills (also blocks the
+      // built-in `/schedule` hijack).
+      const args = [
+        "--model",
+        "claude-haiku-4-5-20251001",
+        "--effort",
+        "low",
+        "--disable-slash-commands",
+        "--append-system-prompt",
+        SYSTEM_PROMPT,
+        userPrompt,
+      ];
+      const child = spawn("claude", args, {
         stdio: "inherit",
         shell: false,
       });

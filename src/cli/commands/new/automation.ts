@@ -15,33 +15,29 @@
 import { Command } from "commander";
 import { spawn } from "node:child_process";
 
-const BOOTSTRAP = [
-  "**You are helping me create an Ano automation.** An Ano automation is a recurring job that lives in my Ano workspace and runs 24/7 on Ano's servers — even when this Shell is closed and my laptop is off.",
+// Tight system prompt — passed via --append-system-prompt so CC has a
+// strong steering signal without re-reading a wall of text every turn.
+// Key constraints baked in: don't use cron/schedule primitives (those
+// schedule inside CC and vanish), don't call compile/create_from_text
+// (those exist for non-LLM CLI callers), do compile the plan yourself
+// and save with `automation_create_compiled`.
+const SYSTEM_PROMPT = [
+  "Help the user create an Ano automation — a server-side recurring job that runs 24/7 even when their laptop is closed.",
   "",
-  "## What you must NOT do",
-  "Do NOT invoke any of these CC built-ins: `schedule` skill, `CronCreate`, `CronList`, `CronDelete`, `ScheduleWakeup`, or any cron/loop primitive. Those schedule things inside *this* Claude Code session — they vanish when the Shell closes. Wrong layer. Use Ano's MCP tools instead.",
+  "Use ONLY Ano's MCP tools: `automation_create_compiled` (save plan), `automation_webhook_setup` (mint URL+secret if webhook), `list_channels` (resolve channel ids).",
   "",
-  "Also do NOT call `automation_compile` or `automation_create_from_text` — those exist for the CLI (where there's no LLM in the loop). You're an LLM in this conversation; compile the plan yourself and save it directly with `automation_create_compiled`.",
+  "DO NOT use: `schedule` skill, `CronCreate`/`CronList`/`CronDelete`, `ScheduleWakeup`, `automation_compile`, `automation_create_from_text`. Those are wrong layer.",
   "",
-  "## Your job",
-  "Walk me through creating the automation, **one question at a time**, in this order:",
+  "Trigger types: schedule (cron), message_match (regex on channel), mention, channel_event, webhook.",
+  "Action tools: send_message, send_dm, sql_query, http_request, run_skill.",
   "",
-  '1. **Greeting + first question** — open with: "Got it — let\'s set up an automation. First, what should *trigger* it? You can pick:" then list the 5 trigger types in plain English (a schedule, a message reaction, a webhook from another service, an @-mention, or a channel event).',
-  "2. **Trigger config** — once I pick a type, ask for the specifics (cron expression / channel + regex / event type / etc.). Pick sensible defaults if I'm vague.",
-  "3. **Actions** — ask what should happen when the trigger fires. Each action uses one of: `send_message` (post to a channel), `send_dm`, `sql_query`, `http_request`, `run_skill`. Most automations are 1-3 steps.",
-  '4. **Confirm** — show me the plan as a readable summary BEFORE saving (e.g. "Every weekday at 9am → query Postgres → post count to #growth"), and ask me to confirm.',
-  "5. **Save** — call `automation_create_compiled` with the structured JSON: `{ name, trigger_type, trigger_config, actions[] }`. Use `list_channels` first if you need channel ids.",
-  "6. **Webhook setup** — if `trigger_type === 'webhook'`, call `automation_webhook_setup` with the returned id and show me the URL + signing secret + signing format (HMAC-SHA256 over `${X-Ano-Timestamp}.${body}`). Tell me to save the secret now since it's only shown once.",
-  "7. **Confirm done** — tell me the automation is live, what time it'll first fire (or that it's waiting for the webhook), and that I can check it on the Automations page.",
+  "Flow: ask one short question per turn (trigger? config? actions?). Confirm in plain English before saving. Save via `automation_create_compiled`. If webhook, also call `automation_webhook_setup` and show URL+secret. Pick sensible defaults when vague (9 AM workspace time, etc.) and call them out.",
   "",
-  "## Constraints",
-  "- One question per turn. Don't dump a wall of questions.",
-  "- Use plain language — no JSON or technical jargon in your messages until step 4 (the confirmation summary).",
-  "- Keep responses short. Short questions, short confirmations.",
-  '- If I\'m vague ("every morning"), pick a sensible default (9:00 AM in workspace timezone) and call it out: "I\'ll go with 9 AM, sound right?"',
-  "",
-  "Now open with the greeting + the trigger-type question.",
+  "Plain language until the final summary. Short responses.",
 ].join("\n");
+
+const KICKOFF =
+  'Open with: "Let\'s set up an automation. What should trigger it — a schedule, a webhook, a reaction, an @-mention, or a channel event?" Wait for my answer before continuing.';
 
 export function registerNewAutomation(parent: Command): void {
   parent
@@ -51,10 +47,26 @@ export function registerNewAutomation(parent: Command): void {
     )
     .action((request: string[] | undefined) => {
       const userIntent = (request ?? []).join(" ").trim();
-      const prompt = userIntent
-        ? `${BOOTSTRAP}\n\n## My request\n\n${userIntent}\n\nUse this as your starting context — confirm the trigger type with me first, then move through the workflow above.`
-        : BOOTSTRAP;
-      const child = spawn("claude", [prompt], {
+      // First user-prompt: either the kickoff (open the conversation) or
+      // the user's pre-supplied intent (skip straight to the trigger
+      // question with that context).
+      const userPrompt = userIntent
+        ? `My request: ${userIntent}\n\nConfirm the trigger type with me, then move through the workflow.`
+        : KICKOFF;
+
+      // Speed: Haiku for ~3-4x faster turns vs Sonnet/Opus, low effort,
+      // skip slash skills (also blocks the built-in `/schedule` hijack).
+      const args = [
+        "--model",
+        "claude-haiku-4-5-20251001",
+        "--effort",
+        "low",
+        "--disable-slash-commands",
+        "--append-system-prompt",
+        SYSTEM_PROMPT,
+        userPrompt,
+      ];
+      const child = spawn("claude", args, {
         stdio: "inherit",
         shell: false,
       });
