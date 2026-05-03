@@ -257,6 +257,18 @@ export interface AnoApiClient {
   automationDelete(opts: {
     automation_id: string;
   }): Promise<{ id: string; deleted: string }>;
+  automationRun(opts: { automation_id: string; dry_run?: boolean }): Promise<{
+    dry_run: boolean;
+    automation?: { id: string; name: string; status: string };
+    would_execute?: Array<{
+      step: number;
+      tool: string;
+      args: Record<string, unknown>;
+    }>;
+    ok?: boolean;
+    runId?: string;
+    error?: string;
+  }>;
   automationUpdate(opts: {
     automation_id: string;
     name?: string;
@@ -374,6 +386,8 @@ export function createApiClient(auth: ResolvedAuth): AnoApiClient {
       post("/automation_create_from_text", opts as Record<string, unknown>),
     automationList: (opts) => post("/automation_list", opts),
     automationRuns: (opts) => post("/automation_runs", opts),
+    automationRun: (opts) =>
+      post("/automation_run", opts as Record<string, unknown>),
     automationPause: (opts) => post("/automation_pause", opts),
     automationDelete: (opts) => post("/automation_delete", opts),
     automationUpdate: (opts) =>
