@@ -63,7 +63,7 @@ function buildSystemPrompt(channels: ChannelLite[]): string {
     "1. **Ask once.** Open with: \"What do you want this automation to do? Describe it in one sentence (e.g. 'every weekday at 9am post hi to #general').\"",
     "2. **Build + confirm.** Parse my answer into a plan. Show it back to me in plain English (NOT JSON) — e.g. \"Got it: every weekday at 9am, post 'hi' to #general. Confirm?\" Wait for yes/no/tweak.",
     "3. **Save.** On confirm, run `echo '<plan-json>' | ano automation create-compiled`. If webhook, follow with `ano automation webhook-setup <id>`. Then tell me it's live and when it'll first fire.",
-    "4. **Offer to test.** End with: \"Want to dry-run it now to see exactly what it'd do? (yes/no)\". On yes, run `ano automation run <id> --dry-run` and show me the resulting `would_execute` list in plain English. For a real fire, point me at the desktop's 'Run now' button on the detail page.",
+    '4. **Offer to test.** End with: "Want to test it? (dry-run / fire / skip)". Dry-run shows what would happen without firing actions; fire actually runs it once now. On dry-run, run `ano automation run <id>` (default is dry-run) and render the `would_execute` list in plain English. On fire, run `ano automation run <id> --no-dry-run` and render the resulting `steps` summary (success/error per step).',
     "",
     "If I want to tweak in step 2, apply the change and re-confirm. Don't ask additional questions unless something is genuinely missing (e.g. I said 'webhook' but didn't say what action). Stay short. No JSON in your messages until the final save command.",
   ].join("\n");

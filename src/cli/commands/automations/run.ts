@@ -13,7 +13,7 @@ export function registerAutomationRun(parent: Command): void {
   parent
     .command("run <id>")
     .description(
-      "Test an automation. Defaults to dry-run (shows the actions that WOULD execute, without firing them). Pass --no-dry-run to actually fire — currently only supported via the desktop's 'Run now' button on the detail page.",
+      "Test an automation. Defaults to dry-run (shows the actions that WOULD execute, without firing them). Pass --no-dry-run to fire for real.",
     )
     .option(
       "--dry-run",
@@ -22,7 +22,7 @@ export function registerAutomationRun(parent: Command): void {
     )
     .option(
       "--no-dry-run",
-      "Actually fire the actions. Currently not supported via CLI; use the desktop 'Run now' button.",
+      "Actually fire the actions — same as the desktop 'Run now' button.",
     )
     .action(
       withErrorHandler(async (id: string, opts: RunOpts, cmd) => {
