@@ -3,10 +3,11 @@
  * existing Ano automation.
  *
  * Mirrors `ano new automation` but loads the current plan first and
- * asks CC to walk the user through changes. Today's edit path uses
- * delete-then-recreate (we don't have an `automation_update` MCP tool
- * yet); the bootstrap calls that out and warns that the run history
- * for the old row will be lost.
+ * asks CC to walk the user through changes. Edits use the
+ * `automation_update` MCP tool — in-place, preserves run history and
+ * the existing webhook URL. Falls back to delete-then-recreate only
+ * when the user's edit changes the trigger_type to/from `webhook`
+ * (the webhook token is keyed on the automation row).
  *
  * Optional trailing positional args become the user's intent for what
  * to change (e.g. `ano edit automation auto_xyz "change the channel
@@ -18,35 +19,33 @@ import { resolveAuth } from "../../../core/auth.js";
 import { createApiClient } from "../../../core/api-client.js";
 import type { GlobalOptions } from "../../types.js";
 
-const BOOTSTRAP_HEADER = [
-  "**You are helping me edit an existing Ano automation.** An Ano automation is a recurring job that lives in my Ano workspace and runs 24/7 on Ano's servers.",
+const SYSTEM_PROMPT = [
+  "Help the user edit an existing Ano automation in place.",
   "",
-  "## What you must NOT do",
-  "Do NOT invoke any of these CC built-ins: `schedule` skill, `CronCreate`, `CronList`, `CronDelete`, `ScheduleWakeup`, or any cron/loop primitive. Use Ano's MCP tools only.",
+  "## Tools",
+  "Drive everything via the `ano` CLI in Bash. The user is in their own Shell; `ano` is on PATH.",
+  "- In-place update (preserves id, run history, webhook URL):",
+  "    `ano automation update <id> --name '...' --enabled true|false ...`",
+  "    Common flags: `--name`, `--description`, `--enabled`, `--visibility`,",
+  "    `--trigger-type`, `--trigger-config '<json>'`, `--actions '<json>'`.",
+  "    Pass only the fields that changed.",
+  "- Webhook URL/secret rotation (only when changing trigger_type to/from `webhook`):",
+  "    `ano automation webhook-setup <id>`",
   "",
-  "Do NOT call `automation_compile` or `automation_create_from_text` — you're an LLM, compile the updated plan yourself.",
+  "## DO NOT",
+  "- Do NOT run `ano automation compile` or `ano automation create` — redundant server-side LLM calls. You are the LLM here.",
+  "- Do NOT use CC's `schedule` skill, `CronCreate`/`CronList`/`CronDelete`, `ScheduleWakeup`.",
+  "- Do NOT delete-then-recreate just to edit a cron expression — `ano automation update --trigger-config '<json>'` is in-place and preserves run history.",
   "",
-  "## How edits work today",
-  "There's no in-place `automation_update` MCP tool yet, so edits are delete-then-recreate:",
-  "1. Use `automation_delete` to remove the old row (this loses run history).",
-  "2. Use `automation_create_compiled` to register the new plan with the user's changes applied.",
-  "3. If the trigger is `webhook`, also call `automation_webhook_setup` after to mint a fresh URL + secret. The old webhook URL stops working after the delete.",
+  "## Flow",
+  "1. Show the current automation in plain English (not JSON). Ask what to change.",
+  "2. Confirm the diff in plain English before running anything.",
+  "3. Apply via `ano automation update <id> ...` with the relevant flags.",
+  "4. Exception — if `trigger_type` changes to/from `webhook`: tell the user the URL+secret will need to be reissued, then run update + `ano automation webhook-setup <id>` and show the new URL+secret.",
+  "5. Confirm done.",
   "",
-  "**Mention the run-history loss + webhook-url change in your confirmation step BEFORE you delete the old one.**",
-  "",
-  "## Your job",
-  "Walk me through the edit, **one question at a time**:",
-  "",
-  "1. **Show + ask** — show me a short readable summary of the current automation (NOT raw JSON), then ask what I want to change.",
-  "2. **Build the new plan** — apply my changes to the existing plan to produce a new structured JSON.",
-  '3. **Confirm** — show the diff in plain English ("Trigger stays the same, channel changes from #growth to #growth-eu"), warn about run-history loss + webhook URL change if applicable, and ask me to confirm.',
-  "4. **Apply** — call `automation_delete` then `automation_create_compiled`. If webhook, also call `automation_webhook_setup` and show me the new URL + secret.",
-  "5. **Confirm done** — tell me the edited automation is live.",
-  "",
-  "## Constraints",
-  "- One question per turn. Plain language. Short responses.",
-  "- Reference the automation by name when talking to me, not by id.",
-];
+  "One short question per turn. Reference the automation by name, not id.",
+].join("\n");
 
 export function registerEditAutomation(parent: Command): void {
   parent
@@ -80,32 +79,30 @@ export function registerEditAutomation(parent: Command): void {
       }
 
       const userIntent = (request ?? []).join(" ").trim();
-      const promptParts = [
-        ...BOOTSTRAP_HEADER,
-        "",
-        `## Current automation (id: ${id})`,
-        "",
+      const userPrompt = [
+        `Current automation (id: ${id}):`,
         "```json",
         JSON.stringify(current, null, 2),
         "```",
         "",
-      ];
-      if (userIntent) {
-        promptParts.push(
-          "## My change request",
-          "",
-          userIntent,
-          "",
-          "Use this as your starting context — confirm you understand what I want, ask any follow-up questions one at a time, then move through the workflow above.",
-        );
-      } else {
-        promptParts.push(
-          "Now show me the current automation in plain English (not JSON) and ask what I want to change.",
-        );
-      }
-      const prompt = promptParts.join("\n");
+        userIntent
+          ? `My change request: ${userIntent}\n\nConfirm you understand, then move through the flow.`
+          : "Show me the current automation in plain English (not JSON) and ask what I want to change.",
+      ].join("\n");
 
-      const child = spawn("claude", [prompt], {
+      // Speed: Haiku + low effort + skip slash skills (also blocks the
+      // built-in `/schedule` hijack).
+      const args = [
+        "--model",
+        "claude-haiku-4-5-20251001",
+        "--effort",
+        "low",
+        "--disable-slash-commands",
+        "--append-system-prompt",
+        SYSTEM_PROMPT,
+        userPrompt,
+      ];
+      const child = spawn("claude", args, {
         stdio: "inherit",
         shell: false,
       });
