@@ -309,7 +309,7 @@ export interface AnoApiClient {
     }>;
     trigger_type?: string;
   }>;
-  webhookTest(opts: { automation_id: string }): Promise<{
+  webhookTest(opts: { coworker_id: string; workspace_id?: string }): Promise<{
     ok: boolean;
     url: string;
     status: number;
