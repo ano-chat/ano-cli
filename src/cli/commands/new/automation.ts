@@ -1,62 +1,75 @@
 /**
  * `ano new automation` — kicks off a guided flow in Claude Code that
- * creates a new Ano automation through the Ano MCP server.
+ * creates a new Ano automation.
  *
- * The user typed this from a terminal (or it was dispatched from the
- * desktop's +New button on /automations). We spawn `claude` with a
- * bootstrap prompt that primes CC to ask clarifying questions, build a
- * structured plan, and call the `automation_create_compiled` MCP tool.
+ * Speed strategy:
+ *   1. Pre-fetch workspace context (channels) BEFORE spawning CC, so
+ *      CC has all references upfront and never needs a `list_channels`
+ *      roundtrip mid-conversation.
+ *   2. Compress the conversation: ONE turn to gather intent ("describe
+ *      what you want"), CC builds the plan in-LLM, ONE confirmation
+ *      turn, then ONE Bash call to `ano automation create-compiled`.
+ *   3. Haiku 4.5 + --effort low + --disable-slash-commands for fast
+ *      per-turn LLM latency.
  *
- * Why a thin wrapper around `claude` instead of a pure CLI prompt: CC
- * is already configured with the Ano MCP, so it can resolve channel
- * ids, look up the user's workspace context, and produce a structured
- * plan in one shot. The CLI doesn't need its own LLM call.
+ * Total flow: 2 user turns + 1 CLI call. No mid-conversation tool
+ * roundtrips.
  */
 import { Command } from "commander";
 import { spawn } from "node:child_process";
+import type { GlobalOptions } from "../../types.js";
+import { resolveAuth } from "../../../core/auth.js";
+import { createApiClient } from "../../../core/api-client.js";
 
-// Tight system prompt — passed via --append-system-prompt so CC has a
-// strong steering signal without re-reading a wall of text every turn.
-// Strategy: drive everything through the `ano` CLI via Bash. CC compiles
-// the plan in-LLM (it IS the LLM) and saves via `ano automation
-// create-compiled` — which takes a JSON plan on stdin or from a file
-// and persists it server-side without a redundant LLM call.
-const SYSTEM_PROMPT = [
-  "Help the user create an Ano automation — a server-side recurring job that runs 24/7 even when their laptop is closed.",
-  "",
-  "## Tools",
-  "Use the Bash tool with `ano` CLI commands. The user is in their own Shell; `ano` is on PATH.",
-  "- Channels lookup: `ano channels list -j` (JSON output)",
-  "- Save plan: `echo '<plan-json>' | ano automation create-compiled` (or `ano automation create-compiled --file plan.json`)",
-  "- Webhook setup (after save, only if `trigger_type=webhook`): `ano automation webhook-setup <id>`",
-  "",
-  "## DO NOT",
-  "- Do NOT run `ano automation compile` — that does a redundant server-side LLM call. **You** are the LLM here; compile the plan yourself.",
-  "- Do NOT run `ano automation create` (one-shot) — also does server-side compile.",
-  "- Do NOT use CC's `schedule` skill, `CronCreate`/`CronList`/`CronDelete`, `ScheduleWakeup` — those schedule things inside *this* Shell and vanish when it closes. Wrong layer.",
-  "",
-  "## Plan shape",
-  "```json",
-  "{",
-  '  "name": "<short label>",',
-  '  "trigger_type": "schedule" | "message_match" | "mention" | "channel_event" | "webhook",',
-  '  "trigger_config": { /* type-specific: cron+tz, channel_id+pattern, channel_id+event_type, etc */ },',
-  '  "actions": [{ "tool": "send_message" | "send_dm" | "sql_query" | "http_request" | "run_skill", "args": { /* tool-specific */ } }]',
-  "}",
-  "```",
-  "",
-  "## Flow",
-  "1. Ask one short question per turn: trigger type → trigger config → actions.",
-  "2. Confirm the plan in plain English before saving (e.g. \"Every weekday at 9am → post 'gm' to #growth — sound right?\").",
-  "3. After confirmation, build the JSON and save via `echo '<plan>' | ano automation create-compiled`.",
-  "4. If `trigger_type=webhook`: also run `ano automation webhook-setup <id>` (id comes from step 3's output) and show the URL+secret to the user.",
-  "5. Tell the user the automation is live + when it'll first fire, and suggest they check `/automations` in Ano.",
-  "",
-  "Plain language until the final summary. Short responses. Pick sensible defaults when vague (9 AM workspace time, etc.) and call them out.",
-].join("\n");
+interface ChannelLite {
+  id: string;
+  name: string;
+}
+
+function buildSystemPrompt(channels: ChannelLite[]): string {
+  const channelList = channels
+    .slice(0, 100)
+    .map((c) => `- ${c.id} → #${c.name}`)
+    .join("\n");
+  return [
+    "Help the user create an Ano automation — a server-side recurring job that runs 24/7 even when their laptop is closed.",
+    "",
+    "## Channels in this workspace",
+    channelList || "  (none)",
+    "",
+    "## Tools",
+    "You have ONE Bash tool action to take: save the final plan via",
+    "  `echo '<plan-json>' | ano automation create-compiled`",
+    "If `trigger_type=webhook`, follow with ONE more Bash action:",
+    "  `ano automation webhook-setup <id-from-create-output>`",
+    "",
+    "**Do not call any other `ano` commands** — channel ids are above; the plan ships directly. No `ano channels list`, no `ano automation compile`, no `ano automation create`. They're all redundant given the context above.",
+    "",
+    "Do NOT use CC's `schedule` skill, `CronCreate`/`CronList`/`CronDelete`, `ScheduleWakeup` — those schedule inside *this* Shell and vanish.",
+    "",
+    "## Plan shape",
+    "```json",
+    "{",
+    '  "name": "<short label, ≤80 chars>",',
+    '  "trigger_type": "schedule" | "message_match" | "mention" | "channel_event" | "webhook",',
+    '  "trigger_config": { /* schedule: {cron, tz}; message_match: {channel_id, pattern}; channel_event: {channel_id, event_type}; mention: {channel_ids?:[]}; webhook: {} */ },',
+    '  "actions": [{ "tool": "send_message" | "send_dm" | "sql_query" | "http_request" | "run_skill", "args": { /* send_message: {channel_id, content}; send_dm: {user_id, content}; sql_query: {connection, query}; http_request: {method, url, body?}; run_skill: {skill_id, args} */ } }]',
+    "}",
+    "```",
+    "",
+    "Reference channels by id (the `ch_...` value above). Cron expressions use 5-field format (`0 9 * * 1-5`). Pick sensible defaults when vague (9 AM workspace time, etc.) and call them out in your confirmation.",
+    "",
+    "## Flow (2 turns + 1 save)",
+    "1. **Ask once.** Open with: \"What do you want this automation to do? Describe it in one sentence (e.g. 'every weekday at 9am post hi to #general').\"",
+    "2. **Build + confirm.** Parse my answer into a plan. Show it back to me in plain English (NOT JSON) — e.g. \"Got it: every weekday at 9am, post 'hi' to #general. Confirm?\" Wait for yes/no/tweak.",
+    "3. **Save.** On confirm, run `echo '<plan-json>' | ano automation create-compiled`. If webhook, follow with `ano automation webhook-setup <id>`. Then tell me it's live and when it'll first fire.",
+    "",
+    "If I want to tweak in step 2, apply the change and re-confirm. Don't ask additional questions unless something is genuinely missing (e.g. I said 'webhook' but didn't say what action). Stay short. No JSON in your messages until the final save command.",
+  ].join("\n");
+}
 
 const KICKOFF =
-  'Open with exactly: "Let\'s set up an automation. What should trigger it — a schedule, a webhook, a reaction, an @-mention, or a channel event?" Wait for my answer before continuing. Do not run any tools yet.';
+  'What do you want this automation to do? Describe it in one sentence (e.g. "every weekday at 9am post hi to #general" or "DM me when someone reacts 🚨 to a message"). Just answer — no questions yet.';
 
 export function registerNewAutomation(parent: Command): void {
   parent
@@ -64,43 +77,67 @@ export function registerNewAutomation(parent: Command): void {
     .description(
       'Create a new Ano automation, guided by Claude Code. Optionally pass a one-line description as the request (e.g. `ano new automation "every weekday at 9am post yesterday\'s signups to #growth"`).',
     )
-    .action((request: string[] | undefined) => {
-      const userIntent = (request ?? []).join(" ").trim();
-      // First user-prompt: either the kickoff (open the conversation) or
-      // the user's pre-supplied intent (skip straight to the trigger
-      // question with that context).
-      const userPrompt = userIntent
-        ? `My request: ${userIntent}\n\nConfirm the trigger type with me, then move through the workflow.`
-        : KICKOFF;
+    .action(
+      async (request: string[] | undefined, _opts: unknown, cmd: Command) => {
+        const globals = cmd.optsWithGlobals() as GlobalOptions;
+        const userIntent = (request ?? []).join(" ").trim();
 
-      // Speed: Haiku for ~3-4x faster turns vs Sonnet/Opus, low effort,
-      // skip slash skills (also blocks the built-in `/schedule` hijack).
-      const args = [
-        "--model",
-        "claude-haiku-4-5-20251001",
-        "--effort",
-        "low",
-        "--disable-slash-commands",
-        "--append-system-prompt",
-        SYSTEM_PROMPT,
-        userPrompt,
-      ];
-      const child = spawn("claude", args, {
-        stdio: "inherit",
-        shell: false,
-      });
-      child.on("error", (err: NodeJS.ErrnoException) => {
-        if (err.code === "ENOENT") {
-          process.stderr.write(
-            "Claude Code isn't installed. Install it from https://claude.com/claude-code, then run `ano new automation` again.\n",
-          );
-          process.exit(127);
+        // Pre-fetch channels so CC has them in the system prompt and
+        // never has to call `ano channels list` mid-conversation.
+        // Failure here is non-fatal — fall through to an empty list and
+        // CC will reference channels by name (the user can correct).
+        let channels: ChannelLite[] = [];
+        try {
+          const auth = resolveAuth(globals);
+          const client = createApiClient(auth);
+          const r = await client.listChannels({
+            workspace_id: globals.workspace,
+          });
+          channels = (r.channels ?? []).map((c) => ({
+            id: String(c.id),
+            name: String(c.name),
+          }));
+        } catch {
+          /* non-fatal */
         }
-        process.stderr.write(`Failed to launch Claude Code: ${err.message}\n`);
-        process.exit(1);
-      });
-      child.on("exit", (code) => {
-        process.exit(code ?? 0);
-      });
-    });
+
+        const systemPrompt = buildSystemPrompt(channels);
+        // First user-prompt: either the kickoff (one-sentence ask) or
+        // the user's pre-supplied intent (skip the kickoff and go
+        // straight to confirmation).
+        const userPrompt = userIntent
+          ? `My request: ${userIntent}\n\nBuild the plan, show it back to me in plain English, and ask me to confirm.`
+          : KICKOFF;
+
+        const args = [
+          "--model",
+          "claude-haiku-4-5-20251001",
+          "--effort",
+          "low",
+          "--disable-slash-commands",
+          "--append-system-prompt",
+          systemPrompt,
+          userPrompt,
+        ];
+        const child = spawn("claude", args, {
+          stdio: "inherit",
+          shell: false,
+        });
+        child.on("error", (err: NodeJS.ErrnoException) => {
+          if (err.code === "ENOENT") {
+            process.stderr.write(
+              "Claude Code isn't installed. Install it from https://claude.com/claude-code, then run `ano new automation` again.\n",
+            );
+            process.exit(127);
+          }
+          process.stderr.write(
+            `Failed to launch Claude Code: ${err.message}\n`,
+          );
+          process.exit(1);
+        });
+        child.on("exit", (code) => {
+          process.exit(code ?? 0);
+        });
+      },
+    );
 }
