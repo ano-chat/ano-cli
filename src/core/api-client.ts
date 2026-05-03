@@ -257,6 +257,27 @@ export interface AnoApiClient {
   automationDelete(opts: {
     automation_id: string;
   }): Promise<{ id: string; deleted: string }>;
+  automationUpdate(opts: {
+    automation_id: string;
+    name?: string;
+    description?: string;
+    trigger_type?:
+      | "schedule"
+      | "message_match"
+      | "mention"
+      | "channel_event"
+      | "webhook";
+    trigger_config?: Record<string, unknown>;
+    actions?: Array<{ tool: string; args: Record<string, unknown> }>;
+    visibility?: "personal" | "workspace";
+    enabled?: boolean;
+  }): Promise<{
+    id: string;
+    name: string;
+    trigger_type: string;
+    enabled: boolean;
+    status: string;
+  }>;
   automationWebhookSetup(opts: { automation_id: string }): Promise<{
     url: string;
     secret: string;
@@ -355,6 +376,8 @@ export function createApiClient(auth: ResolvedAuth): AnoApiClient {
     automationRuns: (opts) => post("/automation_runs", opts),
     automationPause: (opts) => post("/automation_pause", opts),
     automationDelete: (opts) => post("/automation_delete", opts),
+    automationUpdate: (opts) =>
+      post("/automation_update", opts as Record<string, unknown>),
     automationWebhookSetup: (opts) => post("/automation_webhook_setup", opts),
   };
 }
