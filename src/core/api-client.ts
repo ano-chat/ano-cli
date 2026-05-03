@@ -298,6 +298,27 @@ export interface AnoApiClient {
     signing_format: string;
     notes: string;
   }>;
+  automationValidate(opts: { plan: unknown; workspace_id?: string }): Promise<{
+    ok: boolean;
+    schema_errors: unknown[];
+    warnings: Array<{
+      step: number;
+      code: string;
+      message: string;
+      hint?: string;
+    }>;
+    trigger_type?: string;
+  }>;
+  webhookTest(opts: { automation_id: string }): Promise<{
+    ok: boolean;
+    url: string;
+    status: number;
+    latency_ms: number;
+    response_preview: string;
+    signature_header: string;
+    timestamp_header: string;
+    error?: string;
+  }>;
 }
 
 export function createApiClient(auth: ResolvedAuth): AnoApiClient {
@@ -393,6 +414,9 @@ export function createApiClient(auth: ResolvedAuth): AnoApiClient {
     automationUpdate: (opts) =>
       post("/automation_update", opts as Record<string, unknown>),
     automationWebhookSetup: (opts) => post("/automation_webhook_setup", opts),
+    automationValidate: (opts) =>
+      post("/automation_validate", opts as Record<string, unknown>),
+    webhookTest: (opts) => post("/webhook_test", opts),
   };
 }
 
