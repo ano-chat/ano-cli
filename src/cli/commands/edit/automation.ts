@@ -55,6 +55,23 @@ export function registerEditAutomation(parent: Command): void {
     )
     .action(async (id: string, request: string[] | undefined, _opts, cmd) => {
       const globals = cmd.optsWithGlobals() as GlobalOptions;
+
+      // Hard exit when stdin isn't a TTY — same reasoning as `ano new
+      // automation`. The multi-turn child-claude flow can't survive a
+      // non-interactive caller. From inside Claude Code, use field-level
+      // updates via `ano automation update <id> --name "..." --agent` (or
+      // similar single-shot flags) instead.
+      if (!process.stdin.isTTY) {
+        process.stderr.write(
+          "ano edit automation requires an interactive terminal — it spawns a multi-turn chat in Claude Code.\n\n" +
+            "If you're running this from inside a Claude Code session (Bash tool), use single-shot field updates:\n" +
+            `  ano automation update ${id} --name "..." --agent\n` +
+            `  ano automation update ${id} --enabled true --agent\n` +
+            "Or compose a fresh plan and resubmit via `ano automation create-compiled`.\n",
+        );
+        process.exit(2);
+      }
+
       const auth = resolveAuth(globals);
       const client = createApiClient(auth);
 
