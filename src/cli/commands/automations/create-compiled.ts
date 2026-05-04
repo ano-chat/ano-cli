@@ -51,6 +51,14 @@ export function registerAutomationCreateCompiled(parent: Command): void {
           : await readStdin();
         const parsed = parsePlan(raw);
 
+        if (!globals.workspace) {
+          throw new Error(
+            "No workspace selected. Run `ano workspaces use <workspace-id>` " +
+              "to set the active workspace, or pass `--workspace <workspace-id>` " +
+              "to this command. List your workspaces with `ano workspaces list --agent`.",
+          );
+        }
+
         const result = await client.automationCreateCompiled({
           workspace_id: globals.workspace,
           name: parsed.name,
