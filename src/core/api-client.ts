@@ -345,6 +345,74 @@ export interface AnoApiClient {
     workspace_id: string;
     invited_email: string | null;
   }>;
+  coworkerCreate(opts: {
+    display_name: string;
+    workspace_id?: string;
+    role_title: string;
+    avatar_url?: string;
+    expertise?: string;
+    personality?: string;
+    boundaries?: string;
+    custom_instructions?: string;
+    model_provider?: string;
+    model_id?: string;
+    allowed_skill_slugs?: string[];
+    allowed_tool_scope?: "all" | "internal_only" | "custom" | "capabilities";
+    allowed_tools?: string[];
+    capabilities?: string[];
+    respond_to_mentions?: boolean;
+    respond_to_dms?: boolean;
+    channel_ids?: string[];
+    mode?: "managed" | "external";
+    webhook_url?: string;
+  }): Promise<{
+    id: string;
+    display_name: string;
+    api_key?: string;
+    webhook_secret?: string;
+  }>;
+  channelArchive(opts: {
+    channel_id: string;
+    workspace_id?: string;
+  }): Promise<{ id: string; name: string; is_archived: boolean }>;
+  channelMemberAdd(opts: {
+    channel_id: string;
+    user_id: string;
+    workspace_id?: string;
+  }): Promise<{ id: string; channel_id: string; user_id: string }>;
+  channelMemberRemove(opts: {
+    channel_id: string;
+    user_id: string;
+    workspace_id?: string;
+  }): Promise<{ channel_id: string; user_id: string; removed_at: string }>;
+  dndSet(opts: {
+    enabled: boolean;
+    start_time?: string;
+    end_time?: string;
+    until?: string | null;
+  }): Promise<{
+    user_id: string;
+    enabled: boolean;
+    start_time: string | null;
+    end_time: string | null;
+    until: string | null;
+  }>;
+  notificationPreferencesSet(opts: {
+    workspace_id?: string;
+    global_level?: "everything" | "mentions_dms" | "nothing";
+    email_enabled?: boolean;
+    email_delay_minutes?: number;
+    desktop_enabled?: boolean;
+    mobile_enabled?: boolean;
+  }): Promise<{
+    user_id: string;
+    workspace_id: string;
+    global_level: string;
+    email_enabled: boolean;
+    email_delay_minutes: number;
+    desktop_enabled: boolean;
+    mobile_enabled: boolean;
+  }>;
 }
 
 export function createApiClient(auth: ResolvedAuth): AnoApiClient {
@@ -443,9 +511,17 @@ export function createApiClient(auth: ResolvedAuth): AnoApiClient {
     automationValidate: (opts) =>
       post("/automation_validate", opts as Record<string, unknown>),
     webhookTest: (opts) => post("/webhook_test", opts),
+    coworkerCreate: (opts) =>
+      post("/coworker_create", opts as Record<string, unknown>),
     channelCreate: (opts) =>
       post("/channel_create", opts as Record<string, unknown>),
     inviteUser: (opts) => post("/invite_user", opts as Record<string, unknown>),
+    channelArchive: (opts) => post("/channel_archive", opts),
+    channelMemberAdd: (opts) => post("/channel_member_add", opts),
+    channelMemberRemove: (opts) => post("/channel_member_remove", opts),
+    dndSet: (opts) => post("/dnd_set", opts as Record<string, unknown>),
+    notificationPreferencesSet: (opts) =>
+      post("/notification_preferences_set", opts as Record<string, unknown>),
   };
 }
 
