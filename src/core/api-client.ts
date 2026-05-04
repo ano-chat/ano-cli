@@ -261,6 +261,16 @@ export interface AnoApiClient {
   automationDelete(opts: {
     automation_id: string;
   }): Promise<{ id: string; deleted: string }>;
+  /**
+   * Flip a webhook-triggered automation from `stub` → `active` so
+   * inbound webhook POSTs actually fire the configured actions
+   * instead of being recorded for inspection. The mint endpoint
+   * always creates new tokens in stub mode (intentional, for the
+   * desktop UI's recompile-on-real-payload flow); CLI users who
+   * already wrote the automation themselves typically want to
+   * activate immediately.
+   */
+  automationActivate(opts: { automation_id: string }): Promise<{ ok: boolean }>;
   automationRun(opts: { automation_id: string; dry_run?: boolean }): Promise<{
     dry_run: boolean;
     automation?: { id: string; name: string; status: string };
@@ -524,6 +534,7 @@ export function createApiClient(auth: ResolvedAuth): AnoApiClient {
       post("/automation_run", opts as Record<string, unknown>),
     automationPause: (opts) => post("/automation_pause", opts),
     automationDelete: (opts) => post("/automation_delete", opts),
+    automationActivate: (opts) => post("/automation_activate", opts),
     automationUpdate: (opts) =>
       post("/automation_update", opts as Record<string, unknown>),
     automationWebhookSetup: (opts) => post("/automation_webhook_setup", opts),
