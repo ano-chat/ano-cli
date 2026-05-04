@@ -1,81 +1,93 @@
 /**
- * `ano edit automation <id>` — kicks off a CC-guided flow to edit an
- * existing Ano automation.
+ * `ano edit automation <id>` — print the current plan + edit recipe,
+ * exit immediately.
  *
- * Mirrors `ano new automation` but loads the current plan first and
- * asks CC to walk the user through changes. Edits use the
- * `automation_update` MCP tool — in-place, preserves run history and
- * the existing webhook URL. Falls back to delete-then-recreate only
- * when the user's edit changes the trigger_type to/from `webhook`
- * (the webhook token is keyed on the automation row).
+ * Same shape as `ano new automation` — never spawns a child claude.
+ * The runtime where this is invoked IS Claude Code, so the parent
+ * session reads the output and walks the user through the change.
+ *
+ * Mirrors `ano new automation` but loads the current plan first so
+ * the surrounding CC can show the user the existing config + ask
+ * what to change. Edits use the `automation_update` MCP tool —
+ * in-place, preserves run history and the existing webhook URL.
  *
  * Optional trailing positional args become the user's intent for what
  * to change (e.g. `ano edit automation auto_xyz "change the channel
  * to #growth-eu"`), so the desktop's Edit button can pre-load CC.
  */
 import { Command } from "commander";
-import { spawn } from "node:child_process";
 import { resolveAuth } from "../../../core/auth.js";
 import { createApiClient } from "../../../core/api-client.js";
 import type { GlobalOptions } from "../../types.js";
 
-const SYSTEM_PROMPT = [
-  "Help the user edit an existing Ano automation in place.",
-  "",
-  "## Tools",
-  "Drive everything via the `ano` CLI in Bash. The user is in their own Shell; `ano` is on PATH.",
-  "- In-place update (preserves id, run history, webhook URL):",
-  "    `ano automation update <id> --name '...' --enabled true|false ...`",
-  "    Common flags: `--name`, `--description`, `--enabled`, `--visibility`,",
-  "    `--trigger-type`, `--trigger-config '<json>'`, `--actions '<json>'`.",
-  "    Pass only the fields that changed.",
-  "- Webhook URL/secret rotation (only when changing trigger_type to/from `webhook`):",
-  "    `ano automation webhook-setup <id>`",
-  "",
-  "## DO NOT",
-  "- Do NOT run `ano automation compile` or `ano automation create` — redundant server-side LLM calls. You are the LLM here.",
-  "- Do NOT use CC's `schedule` skill, `CronCreate`/`CronList`/`CronDelete`, `ScheduleWakeup`.",
-  "- Do NOT delete-then-recreate just to edit a cron expression — `ano automation update --trigger-config '<json>'` is in-place and preserves run history.",
-  "",
-  "## Flow",
-  "1. Show the current automation in plain English (not JSON). Ask what to change.",
-  "2. Confirm the diff in plain English before running anything.",
-  "3. Apply via `ano automation update <id> ...` with the relevant flags.",
-  "4. Exception — if `trigger_type` changes to/from `webhook`: tell the user the URL+secret will need to be reissued, then run update + `ano automation webhook-setup <id>` and show the new URL+secret.",
-  "5. Confirm done.",
-  "",
-  "One short question per turn. Reference the automation by name, not id.",
-].join("\n");
+function renderInstructions(
+  id: string,
+  current: unknown,
+  userIntent: string,
+): string {
+  const intentBlock = userIntent
+    ? `User change request (already given): "${userIntent}"\n\nConfirm you understand, propose the diff in plain English, then apply.`
+    : 'Step 1 — show the user the current automation in plain English (NOT JSON).\n  Ask: "What would you like to change?"';
+
+  return [
+    "═══ Edit an existing Ano automation ══════════════════════════════════════",
+    "",
+    "You (the surrounding Claude Code session) are the agent. Walk the user",
+    "through the edit using the `ano` CLI directly — DO NOT spawn a child",
+    "claude.",
+    "",
+    `Automation id: ${id}`,
+    "",
+    "Current plan (JSON for your reference — do NOT show this to the user):",
+    "",
+    JSON.stringify(current, null, 2),
+    "",
+    intentBlock,
+    "",
+    "Step 2 — confirm the diff in plain English (NOT JSON) before running.",
+    "  e.g. \"I'll change the channel from #foundations → #engineering and",
+    '       leave the schedule unchanged. Confirm?"',
+    "",
+    "Step 3 — apply in place (preserves id, run history, webhook URL):",
+    `  ano automation update ${id} --name '...' --agent`,
+    `  ano automation update ${id} --enabled true --agent`,
+    `  ano automation update ${id} --trigger-config '<json>' --agent`,
+    `  ano automation update ${id} --actions '<json>' --agent`,
+    "",
+    "  Pass only the fields that changed.",
+    "",
+    "Step 4 — webhook trigger transitions (only when changing trigger_type",
+    "         to/from `webhook`): the URL + secret will need to be reissued.",
+    "  Tell the user this BEFORE running, then:",
+    `    ano automation update ${id} --trigger-type webhook --agent`,
+    `    ano automation webhook-setup ${id} --agent`,
+    "  Show the user the new URL + secret in the response.",
+    "",
+    "Step 5 — confirm done in plain English.",
+    "",
+    "DO NOT:",
+    "  • Run `ano automation compile` or `ano automation create` — redundant",
+    "    server-side LLM. You are the LLM here.",
+    "  • Use CronCreate / CronList / CronDelete / ScheduleWakeup — those",
+    "    schedule inside the surrounding Shell session and vanish on exit.",
+    "  • Delete-then-recreate to change a cron — `update --trigger-config`",
+    "    is in-place and preserves run history.",
+    "═══════════════════════════════════════════════════════════════════════════",
+  ].join("\n");
+}
 
 export function registerEditAutomation(parent: Command): void {
   parent
     .command("automation <id> [request...]")
     .description(
-      "Edit an existing Ano automation, guided by Claude Code. Optionally pass a one-line description of the change as the request.",
+      "Print the current automation plan + edit recipe for the surrounding Claude Code to apply changes via `ano automation update`. Optionally pass a one-line change description as the request.",
     )
     .action(async (id: string, request: string[] | undefined, _opts, cmd) => {
       const globals = cmd.optsWithGlobals() as GlobalOptions;
-
-      // Hard exit when stdin isn't a TTY — same reasoning as `ano new
-      // automation`. The multi-turn child-claude flow can't survive a
-      // non-interactive caller. From inside Claude Code, use field-level
-      // updates via `ano automation update <id> --name "..." --agent` (or
-      // similar single-shot flags) instead.
-      if (!process.stdin.isTTY) {
-        process.stderr.write(
-          "ano edit automation requires an interactive terminal — it spawns a multi-turn chat in Claude Code.\n\n" +
-            "If you're running this from inside a Claude Code session (Bash tool), use single-shot field updates:\n" +
-            `  ano automation update ${id} --name "..." --agent\n` +
-            `  ano automation update ${id} --enabled true --agent\n` +
-            "Or compose a fresh plan and resubmit via `ano automation create-compiled`.\n",
-        );
-        process.exit(2);
-      }
-
       const auth = resolveAuth(globals);
       const client = createApiClient(auth);
 
-      // Fetch current state so CC can show it back to the user.
+      // Fetch current state so the agent can show it to the user.
       let current: unknown = null;
       try {
         const list = await client.automationList({
@@ -96,45 +108,6 @@ export function registerEditAutomation(parent: Command): void {
       }
 
       const userIntent = (request ?? []).join(" ").trim();
-      const userPrompt = [
-        `Current automation (id: ${id}):`,
-        "```json",
-        JSON.stringify(current, null, 2),
-        "```",
-        "",
-        userIntent
-          ? `My change request: ${userIntent}\n\nConfirm you understand, then move through the flow.`
-          : "Show me the current automation in plain English (not JSON) and ask what I want to change.",
-      ].join("\n");
-
-      // Speed: Haiku + low effort + skip slash skills (also blocks the
-      // built-in `/schedule` hijack).
-      const args = [
-        "--model",
-        "claude-haiku-4-5-20251001",
-        "--effort",
-        "low",
-        "--disable-slash-commands",
-        "--append-system-prompt",
-        SYSTEM_PROMPT,
-        userPrompt,
-      ];
-      const child = spawn("claude", args, {
-        stdio: "inherit",
-        shell: false,
-      });
-      child.on("error", (err: NodeJS.ErrnoException) => {
-        if (err.code === "ENOENT") {
-          process.stderr.write(
-            "Claude Code isn't installed. Install it from https://claude.com/claude-code, then run `ano edit automation` again.\n",
-          );
-          process.exit(127);
-        }
-        process.stderr.write(`Failed to launch Claude Code: ${err.message}\n`);
-        process.exit(1);
-      });
-      child.on("exit", (code) => {
-        process.exit(code ?? 0);
-      });
+      process.stdout.write(renderInstructions(id, current, userIntent) + "\n");
     });
 }
