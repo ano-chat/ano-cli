@@ -5,6 +5,8 @@ import { withErrorHandler } from "../../middleware/error-handler.js";
 import { resolveAuth } from "../../../core/auth.js";
 import { createApiClient } from "../../../core/api-client.js";
 import { output } from "../../../core/output.js";
+import { slugFromId } from "../../../util/slug.js";
+import { resolveAutomation } from "./resolve-automation.js";
 
 interface UpdateOpts {
   name?: string;
@@ -39,7 +41,7 @@ interface PlanFromFile {
 
 export function registerAutomationUpdate(parent: Command): void {
   parent
-    .command("update <id>")
+    .command("update <slug-or-id>")
     .description(
       "Edit an automation in place — preserves run history, webhook URL, and the automation id. Pass only the fields you want to change.",
     )
@@ -64,10 +66,15 @@ export function registerAutomationUpdate(parent: Command): void {
       "JSON file with any of the above keys (snake_case). Field-flag overrides take precedence.",
     )
     .action(
-      withErrorHandler(async (id: string, opts: UpdateOpts, cmd) => {
+      withErrorHandler(async (input: string, opts: UpdateOpts, cmd) => {
         const globals = cmd.optsWithGlobals() as GlobalOptions;
         const auth = resolveAuth(globals);
         const client = createApiClient(auth);
+        const automationId = await resolveAutomation({
+          client,
+          workspace: globals.workspace,
+          input,
+        });
 
         // Build the update payload from --from-file (if any) + flag
         // overrides. Flags win.
@@ -76,7 +83,7 @@ export function registerAutomationUpdate(parent: Command): void {
           : {};
 
         const payload: Parameters<typeof client.automationUpdate>[0] = {
-          automation_id: id,
+          automation_id: automationId,
         };
         if (fromFile.name !== undefined) payload.name = fromFile.name;
         if (fromFile.description !== undefined)
@@ -116,7 +123,7 @@ export function registerAutomationUpdate(parent: Command): void {
           breadcrumbs: [
             {
               action: "automation_runs",
-              cmd: `ano automation runs ${id}`,
+              cmd: `ano automation runs ${slugFromId(automationId)}`,
               description: "Run history (preserved)",
             },
           ],
