@@ -14,6 +14,8 @@ import { registerTables } from "./commands/tables/index.js";
 import { registerAutomations } from "./commands/automations/index.js";
 import { registerCoworker } from "./commands/coworker/index.js";
 import { registerInvite } from "./commands/invite/index.js";
+import { registerDnd } from "./commands/dnd/index.js";
+import { registerNotifications } from "./commands/notifications/index.js";
 import { registerNew } from "./commands/new/index.js";
 import { registerEdit } from "./commands/edit/index.js";
 
@@ -28,6 +30,8 @@ export function registerAllCommands(program: Command): void {
   registerAutomations(program);
   registerCoworker(program);
   registerInvite(program);
+  registerDnd(program);
+  registerNotifications(program);
   registerNew(program);
   registerEdit(program);
   registerConnect(program);
