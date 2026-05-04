@@ -210,6 +210,10 @@ export interface AnoApiClient {
     coworker_id?: string;
     bot_avatar?: string;
     prompt?: string;
+    /** Optional run cap; null/absent = unlimited. */
+    max_runs?: number | null;
+    /** Optional expiry epoch ms; null/absent = no expiry. */
+    expires_at?: number | null;
   }): Promise<{
     id: string;
     name: string;
@@ -283,6 +287,10 @@ export interface AnoApiClient {
     actions?: Array<{ tool: string; args: Record<string, unknown> }>;
     visibility?: "personal" | "workspace";
     enabled?: boolean;
+    /** Run cap; null = remove cap. */
+    max_runs?: number | null;
+    /** Expiry epoch ms; null = remove expiry. */
+    expires_at?: number | null;
   }): Promise<{
     id: string;
     name: string;
