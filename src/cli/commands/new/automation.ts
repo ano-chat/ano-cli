@@ -83,6 +83,27 @@ export function registerNewAutomation(parent: Command): void {
         const globals = cmd.optsWithGlobals() as GlobalOptions;
         const userIntent = (request ?? []).join(" ").trim();
 
+        // Hard exit when stdin isn't a TTY. This command spawns a child
+        // `claude` Code subprocess that walks the user through a multi-turn
+        // spec build. From a non-TTY caller (typically Claude Code's own
+        // Bash tool, or a CI shell) every invocation spawns a *fresh*
+        // subprocess with no shared state — the user's "yes, confirmed"
+        // hits a brand-new session. Print a hint pointing to the
+        // build-before-talk path and bail rather than silently misbehave.
+        if (!process.stdin.isTTY) {
+          process.stderr.write(
+            "ano new automation requires an interactive terminal — it spawns a multi-turn chat in Claude Code.\n\n" +
+              "If you're running this from inside a Claude Code session (Bash tool), DON'T — each call spawns a fresh subprocess with no shared state, so the multi-turn flow breaks.\n\n" +
+              "Use the build-before-talk path instead:\n" +
+              "  1. Resolve any named users/channels (ano user_get_by_name, ano channels list)\n" +
+              "  2. Compose the compiled plan offline\n" +
+              "  3. Validate:  ano automation validate --file plan.json --agent\n" +
+              "  4. Submit:    cat plan.json | ano automation create-compiled --file - --agent\n\n" +
+              "Sub-100ms server latency, no nested-session state loss. See the ano-cli skill for the full plan shape.\n",
+          );
+          process.exit(2);
+        }
+
         // Pre-fetch channels so CC has them in the system prompt and
         // never has to call `ano channels list` mid-conversation.
         // Failure here is non-fatal — fall through to an empty list and
