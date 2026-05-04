@@ -4,6 +4,7 @@ import { withErrorHandler } from "../../middleware/error-handler.js";
 import { resolveAuth } from "../../../core/auth.js";
 import { createApiClient } from "../../../core/api-client.js";
 import { output } from "../../../core/output.js";
+import { slugFromId } from "../../../util/slug.js";
 
 export function registerAutomationList(parent: Command): void {
   parent
@@ -17,10 +18,18 @@ export function registerAutomationList(parent: Command): void {
         const result = await client.automationList({
           workspace_id: globals.workspace,
         });
+        // Enrich each automation row with a stable display slug so the
+        // human-readable styled output never has to surface a UUID.
+        // The raw `id` stays on the row for JSON/agent output and so
+        // scripts that already parse the field keep working.
+        const rows = result.automations.map((a) => ({
+          ...a,
+          slug: slugFromId(a.id),
+        }));
         output(globals, {
-          data: result.automations,
+          data: rows,
           columns: [
-            "id",
+            "slug",
             "name",
             "trigger_type",
             "status",
@@ -31,8 +40,8 @@ export function registerAutomationList(parent: Command): void {
           breadcrumbs: [
             {
               action: "automation_runs",
-              cmd: "ano automation runs <automation-id>",
-              description: "Show run history for an automation",
+              cmd: "ano automation runs <slug-or-id>",
+              description: "Show run history for an automation (slug or UUID).",
             },
           ],
         });

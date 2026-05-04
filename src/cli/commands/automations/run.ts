@@ -4,6 +4,8 @@ import { withErrorHandler } from "../../middleware/error-handler.js";
 import { resolveAuth } from "../../../core/auth.js";
 import { createApiClient } from "../../../core/api-client.js";
 import { output } from "../../../core/output.js";
+import { slugFromId } from "../../../util/slug.js";
+import { resolveAutomation } from "./resolve-automation.js";
 
 interface RunOpts {
   dryRun?: boolean;
@@ -11,7 +13,7 @@ interface RunOpts {
 
 export function registerAutomationRun(parent: Command): void {
   parent
-    .command("run <id>")
+    .command("run <slug-or-id>")
     .description(
       "Test an automation. Defaults to dry-run (shows the actions that WOULD execute, without firing them). Pass --no-dry-run to fire for real.",
     )
@@ -25,12 +27,17 @@ export function registerAutomationRun(parent: Command): void {
       "Actually fire the actions — same as the desktop 'Run now' button.",
     )
     .action(
-      withErrorHandler(async (id: string, opts: RunOpts, cmd) => {
+      withErrorHandler(async (input: string, opts: RunOpts, cmd) => {
         const globals = cmd.optsWithGlobals() as GlobalOptions;
         const auth = resolveAuth(globals);
         const client = createApiClient(auth);
+        const automationId = await resolveAutomation({
+          client,
+          workspace: globals.workspace,
+          input,
+        });
         const result = await client.automationRun({
-          automation_id: id,
+          automation_id: automationId,
           dry_run: opts.dryRun !== false,
         });
         output(globals, {
@@ -39,7 +46,7 @@ export function registerAutomationRun(parent: Command): void {
           breadcrumbs: [
             {
               action: "automation_runs",
-              cmd: `ano automation runs ${id}`,
+              cmd: `ano automation runs ${slugFromId(automationId)}`,
               description: "Run history",
             },
           ],
