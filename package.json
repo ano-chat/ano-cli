@@ -1,6 +1,6 @@
 {
   "name": "@ano-chat/cli",
-  "version": "2.7.0",
+  "version": "2.7.1",
   "description": "CLI for Ano — team communication for humans and agents",
   "type": "module",
   "bin": {
