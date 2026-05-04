@@ -319,6 +319,21 @@ export interface AnoApiClient {
     timestamp_header: string;
     error?: string;
   }>;
+  channelCreate(opts: {
+    name: string;
+    workspace_id?: string;
+    topic?: string;
+    description?: string;
+    is_private?: boolean;
+    type?: "channel" | "space";
+    member_ids?: string[];
+  }): Promise<{
+    id: string;
+    name: string;
+    is_private: boolean;
+    type: string;
+    member_count: number;
+  }>;
 }
 
 export function createApiClient(auth: ResolvedAuth): AnoApiClient {
@@ -417,6 +432,8 @@ export function createApiClient(auth: ResolvedAuth): AnoApiClient {
     automationValidate: (opts) =>
       post("/automation_validate", opts as Record<string, unknown>),
     webhookTest: (opts) => post("/webhook_test", opts),
+    channelCreate: (opts) =>
+      post("/channel_create", opts as Record<string, unknown>),
   };
 }
 
