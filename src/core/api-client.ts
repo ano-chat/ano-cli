@@ -334,6 +334,17 @@ export interface AnoApiClient {
     type: string;
     member_count: number;
   }>;
+  inviteUser(opts: {
+    workspace_id?: string;
+    invited_email?: string;
+    expires_in_hours?: number;
+  }): Promise<{
+    token: string;
+    invite_url: string;
+    expires_at: string;
+    workspace_id: string;
+    invited_email: string | null;
+  }>;
 }
 
 export function createApiClient(auth: ResolvedAuth): AnoApiClient {
@@ -434,6 +445,7 @@ export function createApiClient(auth: ResolvedAuth): AnoApiClient {
     webhookTest: (opts) => post("/webhook_test", opts),
     channelCreate: (opts) =>
       post("/channel_create", opts as Record<string, unknown>),
+    inviteUser: (opts) => post("/invite_user", opts as Record<string, unknown>),
   };
 }
 
