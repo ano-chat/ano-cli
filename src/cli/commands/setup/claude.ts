@@ -37,18 +37,30 @@ export function registerSetupClaude(parent: Command): void {
 }
 
 function findSkillFile(): string | null {
-  const relPath = join("packages", "skills", "skills", "ano-cli", "SKILL.md");
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
 
+  // 1) Bundled-with-CLI: tsup copies the latest SKILL.md from
+  //    `@ano-chat/skills` into `dist/skills/ano-cli/SKILL.md` at build
+  //    time. This is the most reliable source — it ships with whatever
+  //    CLI version the user installed, no resolve gymnastics needed.
+  const bundled = join(moduleDir, "skills", "ano-cli", "SKILL.md");
+  if (existsSync(bundled)) return bundled;
+
+  // 2) `@ano-chat/skills` resolved as a runtime dep (covers dev runs
+  //    via `tsx` where dist/ doesn't exist yet, and edge cases where
+  //    the bundle step didn't run).
   try {
     const require = createRequire(import.meta.url);
     const pkgPath = require.resolve("@ano-chat/skills/package.json");
     const candidate = join(dirname(pkgPath), "skills", "ano-cli", "SKILL.md");
     if (existsSync(candidate)) return candidate;
   } catch {
-    // @ano-chat/skills not installed — fall through to repo-local lookup
+    // fall through to repo-local lookup
   }
 
-  let dir = dirname(fileURLToPath(import.meta.url));
+  // 3) Monorepo / repo-local layout (running from a checkout).
+  const relPath = join("packages", "skills", "skills", "ano-cli", "SKILL.md");
+  let dir = moduleDir;
   for (let i = 0; i < 8; i++) {
     const candidate = join(dir, relPath);
     if (existsSync(candidate)) return candidate;

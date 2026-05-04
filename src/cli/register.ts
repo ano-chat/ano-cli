@@ -12,6 +12,7 @@ import { registerShow } from "./commands/show.js";
 import { registerCommands } from "./commands/commands.js";
 import { registerTables } from "./commands/tables/index.js";
 import { registerAutomations } from "./commands/automations/index.js";
+import { registerCoworker } from "./commands/coworker/index.js";
 import { registerNew } from "./commands/new/index.js";
 import { registerEdit } from "./commands/edit/index.js";
 
@@ -24,6 +25,7 @@ export function registerAllCommands(program: Command): void {
   registerWorkspaces(program);
   registerTables(program);
   registerAutomations(program);
+  registerCoworker(program);
   registerNew(program);
   registerEdit(program);
   registerConnect(program);

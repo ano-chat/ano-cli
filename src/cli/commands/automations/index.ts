@@ -9,6 +9,7 @@ import { registerAutomationPause } from "./pause.js";
 import { registerAutomationDelete } from "./delete.js";
 import { registerAutomationUpdate } from "./update.js";
 import { registerAutomationWebhookSetup } from "./webhook-setup.js";
+import { registerAutomationValidate } from "./validate.js";
 
 export function registerAutomations(parent: Command): void {
   const group = new Command("automation").description(
@@ -17,6 +18,7 @@ export function registerAutomations(parent: Command): void {
   registerAutomationCompile(group);
   registerAutomationCreate(group);
   registerAutomationCreateCompiled(group);
+  registerAutomationValidate(group);
   registerAutomationUpdate(group);
   registerAutomationList(group);
   registerAutomationRuns(group);

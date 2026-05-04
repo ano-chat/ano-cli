@@ -1,11 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import {
-  readFileSync,
-  writeFileSync,
-  mkdirSync,
-  existsSync,
-} from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 
 const CONFIG_DIR = join(homedir(), ".config", "ano");
 const PROJECT_DIR = ".ano";
@@ -17,6 +12,13 @@ export interface Credentials {
       key: string;
       endpoint?: string;
       workspace_name?: string;
+      /**
+       * Active workspace ID for this profile. Set by `ano workspaces use <id>`.
+       * Commands that take a workspace_id default to this when neither
+       * --workspace-id nor ANO_WORKSPACE_ID is supplied. Leave undefined for
+       * single-workspace users.
+       */
+      workspace_id?: string;
       created_at: string;
     }
   >;
