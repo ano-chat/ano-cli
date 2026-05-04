@@ -385,6 +385,17 @@ export interface AnoApiClient {
     user_id: string;
     workspace_id?: string;
   }): Promise<{ channel_id: string; user_id: string; removed_at: string }>;
+  workspaceMemberAdd(opts: { workspace_id: string; user_id: string }): Promise<{
+    workspace_id: string;
+    user_id: string;
+    already_member: boolean;
+    promoted_from_collaborator: boolean;
+    rejoined: boolean;
+  }>;
+  workspaceMemberRemove(opts: {
+    workspace_id: string;
+    user_id: string;
+  }): Promise<{ workspace_id: string; user_id: string; removed_at: string }>;
   dndSet(opts: {
     enabled: boolean;
     start_time?: string;
@@ -519,6 +530,8 @@ export function createApiClient(auth: ResolvedAuth): AnoApiClient {
     channelArchive: (opts) => post("/channel_archive", opts),
     channelMemberAdd: (opts) => post("/channel_member_add", opts),
     channelMemberRemove: (opts) => post("/channel_member_remove", opts),
+    workspaceMemberAdd: (opts) => post("/workspace_member_add", opts),
+    workspaceMemberRemove: (opts) => post("/workspace_member_remove", opts),
     dndSet: (opts) => post("/dnd_set", opts as Record<string, unknown>),
     notificationPreferencesSet: (opts) =>
       post("/notification_preferences_set", opts as Record<string, unknown>),
