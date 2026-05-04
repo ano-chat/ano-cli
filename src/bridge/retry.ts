@@ -82,10 +82,20 @@ export async function retryFetch(
     }
 
     if (res.status >= 500) {
-      // Server error — retry, consume body to free connection
+      // Distinguish transient gateway errors from application errors:
+      //   • 502 / 503 / 504 — proxy/upstream-down/timeout — retry up to
+      //     `maxRetries` (full exponential backoff, ~60s ceiling).
+      //   • 500 — application error from the server's catch-all. These
+      //     are usually NOT transient (a SQL bug, a thrown exception in
+      //     a handler). Cap at 2 quick retries (~3s) so users surface
+      //     the failure fast instead of waiting through 10 attempts.
       await res.body?.cancel().catch(() => {});
       lastError = new Error(`Server error: ${res.status}`);
-      if (attempt < maxRetries) {
+      const isApplicationError = res.status === 500;
+      const effectiveMaxRetries = isApplicationError
+        ? Math.min(maxRetries, 2)
+        : maxRetries;
+      if (attempt < effectiveMaxRetries) {
         const delay = Math.min(baseDelay * 2 ** attempt, maxDelay) + jitter();
         await new Promise((r) => setTimeout(r, delay));
         continue;
