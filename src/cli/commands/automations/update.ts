@@ -6,6 +6,7 @@ import { resolveAuth } from "../../../core/auth.js";
 import { createApiClient } from "../../../core/api-client.js";
 import { output } from "../../../core/output.js";
 import { slugFromId } from "../../../util/slug.js";
+import { parseDuration } from "../../../util/parse-duration.js";
 import { resolveAutomation } from "./resolve-automation.js";
 
 interface UpdateOpts {
@@ -22,6 +23,12 @@ interface UpdateOpts {
   triggerConfig?: string;
   actions?: string;
   fromFile?: string;
+  /** "none" / "null" / "0" / negative removes the cap. */
+  maxRuns?: string;
+  /** Relative duration ("5 weeks") added to Date.now(). "none" removes. */
+  expiresIn?: string;
+  /** ISO date / epoch ms/sec. "none" removes. Wins over --expires-in. */
+  expiresAt?: string;
 }
 
 interface PlanFromFile {
@@ -37,6 +44,54 @@ interface PlanFromFile {
     | "webhook";
   trigger_config?: Record<string, unknown>;
   actions?: Array<{ tool: string; args: Record<string, unknown> }>;
+  max_runs?: number | null;
+  expires_at?: number | null;
+}
+
+/** "none" / "null" / "0" / negative ⇒ null (remove cap). */
+function resolveMaxRunsUpdate(
+  value: string | undefined,
+): number | null | undefined {
+  if (value === undefined) return undefined;
+  const trimmed = value.trim().toLowerCase();
+  if (trimmed === "none" || trimmed === "null" || trimmed === "") return null;
+  const n = Number.parseInt(trimmed, 10);
+  if (!Number.isFinite(n)) {
+    throw new Error(
+      `--max-runs must be a positive integer or "none", got "${value}".`,
+    );
+  }
+  if (n <= 0) return null;
+  return n;
+}
+
+/** "none"/"null"/"" ⇒ null. ISO or epoch ms/sec accepted. */
+function resolveExpiryUpdate(opts: {
+  expiresIn?: string;
+  expiresAt?: string;
+}): number | null | undefined {
+  const removeTokens = new Set(["none", "null", ""]);
+  if (opts.expiresAt !== undefined) {
+    const trimmed = opts.expiresAt.trim();
+    if (removeTokens.has(trimmed.toLowerCase())) return null;
+    const numeric = /^\d+$/.test(trimmed) ? Number(trimmed) : NaN;
+    if (Number.isFinite(numeric)) {
+      return numeric < 1_000_000_000_000 ? numeric * 1000 : numeric;
+    }
+    const parsed = Date.parse(trimmed);
+    if (!Number.isFinite(parsed)) {
+      throw new Error(
+        `--expires-at must be ISO date, epoch ms/sec, or "none", got "${opts.expiresAt}".`,
+      );
+    }
+    return parsed;
+  }
+  if (opts.expiresIn !== undefined) {
+    const trimmed = opts.expiresIn.trim();
+    if (removeTokens.has(trimmed.toLowerCase())) return null;
+    return Date.now() + parseDuration(trimmed);
+  }
+  return undefined;
 }
 
 export function registerAutomationUpdate(parent: Command): void {
@@ -61,6 +116,18 @@ export function registerAutomationUpdate(parent: Command): void {
       "JSON object replacing trigger_config wholesale",
     )
     .option("--actions <json>", "JSON array replacing actions wholesale")
+    .option(
+      "--max-runs <n-or-none>",
+      "Set or change run cap. Positive int = cap, 'none' = unlimited.",
+    )
+    .option(
+      "--expires-in <duration-or-none>",
+      "Set expiry as a relative duration ('5 weeks', '12h'). 'none' removes expiry.",
+    )
+    .option(
+      "--expires-at <iso-or-epoch-or-none>",
+      "Set expiry as an absolute time (ISO or epoch ms/sec). 'none' removes expiry. Wins over --expires-in.",
+    )
     .option(
       "--from-file <path>",
       "JSON file with any of the above keys (snake_case). Field-flag overrides take precedence.",
@@ -96,6 +163,10 @@ export function registerAutomationUpdate(parent: Command): void {
         if (fromFile.trigger_config !== undefined)
           payload.trigger_config = fromFile.trigger_config;
         if (fromFile.actions !== undefined) payload.actions = fromFile.actions;
+        if (fromFile.max_runs !== undefined)
+          payload.max_runs = fromFile.max_runs;
+        if (fromFile.expires_at !== undefined)
+          payload.expires_at = fromFile.expires_at;
 
         if (opts.name !== undefined) payload.name = opts.name;
         if (opts.description !== undefined)
@@ -115,6 +186,13 @@ export function registerAutomationUpdate(parent: Command): void {
         if (opts.actions !== undefined) {
           payload.actions = JSON.parse(opts.actions);
         }
+        const maxRunsFlag = resolveMaxRunsUpdate(opts.maxRuns);
+        if (maxRunsFlag !== undefined) payload.max_runs = maxRunsFlag;
+        const expiresFlag = resolveExpiryUpdate({
+          expiresIn: opts.expiresIn,
+          expiresAt: opts.expiresAt,
+        });
+        if (expiresFlag !== undefined) payload.expires_at = expiresFlag;
 
         const result = await client.automationUpdate(payload);
         output(globals, {
