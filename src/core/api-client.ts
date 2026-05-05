@@ -442,6 +442,15 @@ export interface AnoApiClient {
     desktop_enabled: boolean;
     mobile_enabled: boolean;
   }>;
+
+  // ── Integrations (Pipedream Connect URL flow) ───────────────────────
+  requestConnection(opts: { app: string; workspace_id?: string }): Promise<{
+    auth_url: string;
+    expires_at: string;
+    workspace_id: string;
+    expected_connection_name: string;
+    instructions?: string;
+  }>;
 }
 
 export function createApiClient(auth: ResolvedAuth): AnoApiClient {
@@ -554,6 +563,7 @@ export function createApiClient(auth: ResolvedAuth): AnoApiClient {
     dndSet: (opts) => post("/dnd_set", opts as Record<string, unknown>),
     notificationPreferencesSet: (opts) =>
       post("/notification_preferences_set", opts as Record<string, unknown>),
+    requestConnection: (opts) => post("/request_connection", opts),
   };
 }
 
