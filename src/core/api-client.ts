@@ -389,6 +389,27 @@ export interface AnoApiClient {
     api_key?: string;
     webhook_secret?: string;
   }>;
+  coworkerUpdate(opts: {
+    coworker_id: string;
+    workspace_id?: string;
+    display_name?: string;
+    avatar_url?: string;
+    role_title?: string;
+    expertise?: string;
+    personality?: string;
+    boundaries?: string;
+    custom_instructions?: string;
+    model_provider?: string;
+    model_id?: string;
+    allowed_skill_slugs?: string[];
+    allowed_tool_scope?: "all" | "internal_only" | "custom" | "capabilities";
+    allowed_tools?: string[];
+    capabilities?: string[];
+    enabled?: boolean;
+    respond_to_mentions?: boolean;
+    respond_to_dms?: boolean;
+    webhook_url?: string | null;
+  }): Promise<{ ok: boolean; id: string }>;
   channelArchive(opts: {
     channel_id: string;
     workspace_id?: string;
@@ -552,6 +573,8 @@ export function createApiClient(auth: ResolvedAuth): AnoApiClient {
     webhookTest: (opts) => post("/webhook_test", opts),
     coworkerCreate: (opts) =>
       post("/coworker_create", opts as Record<string, unknown>),
+    coworkerUpdate: (opts) =>
+      post("/coworker_update", opts as Record<string, unknown>),
     channelCreate: (opts) =>
       post("/channel_create", opts as Record<string, unknown>),
     inviteUser: (opts) => post("/invite_user", opts as Record<string, unknown>),
