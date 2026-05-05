@@ -1,10 +1,7 @@
 [
   {
     "command": "auth complete",
-    "flags": [
-      "--profile",
-      "--workspace-id"
-    ],
+    "flags": ["--profile", "--workspace-id"],
     "args": []
   },
   {
@@ -20,9 +17,7 @@
   },
   {
     "command": "auth logout",
-    "flags": [
-      "--profile"
-    ],
+    "flags": ["--profile"],
     "args": []
   },
   {
@@ -31,9 +26,112 @@
     "args": []
   },
   {
+    "command": "automation activate",
+    "flags": [],
+    "args": ["slug-or-id"]
+  },
+  {
+    "command": "automation compile",
+    "flags": [],
+    "args": ["prompt"]
+  },
+  {
+    "command": "automation create",
+    "flags": ["--visibility"],
+    "args": ["prompt"]
+  },
+  {
+    "command": "automation create-compiled",
+    "flags": [
+      "--expires-at",
+      "--expires-in",
+      "--file",
+      "--max-runs",
+      "--visibility"
+    ],
+    "args": []
+  },
+  {
+    "command": "automation delete",
+    "flags": [],
+    "args": ["slug-or-id"]
+  },
+  {
+    "command": "automation list",
+    "flags": [],
+    "args": []
+  },
+  {
+    "command": "automation pause",
+    "flags": [],
+    "args": ["slug-or-id"]
+  },
+  {
+    "command": "automation resume",
+    "flags": [],
+    "args": ["slug-or-id"]
+  },
+  {
+    "command": "automation run",
+    "flags": ["--dry-run", "--no-dry-run"],
+    "args": ["slug-or-id"]
+  },
+  {
+    "command": "automation runs",
+    "flags": ["--limit"],
+    "args": ["slug-or-id"]
+  },
+  {
+    "command": "automation update",
+    "flags": [
+      "--actions",
+      "--description",
+      "--enabled",
+      "--expires-at",
+      "--expires-in",
+      "--from-file",
+      "--max-runs",
+      "--name",
+      "--trigger-config",
+      "--trigger-type",
+      "--visibility"
+    ],
+    "args": ["slug-or-id"]
+  },
+  {
+    "command": "automation validate",
+    "flags": ["--file"],
+    "args": []
+  },
+  {
+    "command": "automation webhook-setup",
+    "flags": [],
+    "args": ["slug-or-id"]
+  },
+  {
+    "command": "channels archive",
+    "flags": [],
+    "args": ["channel-id"]
+  },
+  {
+    "command": "channels create",
+    "flags": ["--description", "--members", "--private", "--topic", "--type"],
+    "args": ["name"]
+  },
+  {
     "command": "channels list",
     "flags": [],
     "args": []
+  },
+  {
+    "command": "channels member-add",
+    "flags": [],
+    "args": ["channel-id", "user-id"]
+  },
+  {
+    "command": "channels member-remove",
+    "flags": [],
+    "args": ["channel-id", "user-id"]
   },
   {
     "command": "commands",
@@ -55,21 +153,40 @@
   },
   {
     "command": "connect uninstall-service",
-    "flags": [
-      "--service-name"
-    ],
+    "flags": ["--service-name"],
     "args": []
   },
   {
-    "command": "dm send",
+    "command": "coworker create",
     "flags": [
-      "--email",
-      "--to",
-      "--user-id"
+      "--boundaries",
+      "--capabilities",
+      "--channels",
+      "--custom-instructions",
+      "--expertise",
+      "--external",
+      "--model-id",
+      "--model-provider",
+      "--personality",
+      "--role-title",
+      "--webhook-url"
     ],
-    "args": [
-      "content"
-    ]
+    "args": ["display-name"]
+  },
+  {
+    "command": "coworker webhook-test",
+    "flags": [],
+    "args": ["coworker-id"]
+  },
+  {
+    "command": "dm send",
+    "flags": ["--email", "--to", "--user-id"],
+    "args": ["content"]
+  },
+  {
+    "command": "dnd set",
+    "flags": ["--clear", "--off", "--on", "--until", "--window"],
+    "args": []
   },
   {
     "command": "doctor",
@@ -77,91 +194,88 @@
     "args": []
   },
   {
+    "command": "edit automation",
+    "flags": [],
+    "args": ["id", "request"]
+  },
+  {
+    "command": "integrations connect",
+    "flags": [],
+    "args": ["app"]
+  },
+  {
+    "command": "invite",
+    "flags": ["--expires-hours"],
+    "args": ["email"]
+  },
+  {
     "command": "messages read",
-    "flags": [
-      "--channel",
-      "--limit"
-    ],
+    "flags": ["--channel", "--limit"],
     "args": []
   },
   {
     "command": "messages search",
-    "flags": [
-      "--limit"
-    ],
-    "args": [
-      "query"
-    ]
+    "flags": ["--limit"],
+    "args": ["query"]
   },
   {
     "command": "messages send",
-    "flags": [
-      "--channel",
-      "--mention",
-      "--thread"
-    ],
-    "args": [
-      "content"
-    ]
+    "flags": ["--channel", "--mention", "--thread"],
+    "args": ["content"]
   },
   {
-    "command": "setup claude",
+    "command": "new automation",
+    "flags": [],
+    "args": ["request"]
+  },
+  {
+    "command": "notifications prefs-set",
     "flags": [
-      "--global"
+      "--desktop",
+      "--email",
+      "--email-delay-minutes",
+      "--global-level",
+      "--mobile",
+      "--no-desktop",
+      "--no-email",
+      "--no-mobile"
     ],
     "args": []
   },
   {
+    "command": "setup claude",
+    "flags": ["--global"],
+    "args": []
+  },
+  {
     "command": "setup openclaw",
-    "flags": [
-      "--health-port",
-      "--openclaw-token",
-      "--openclaw-url"
-    ],
+    "flags": ["--health-port", "--openclaw-token", "--openclaw-url"],
     "args": []
   },
   {
     "command": "show",
     "flags": [],
-    "args": [
-      "url"
-    ]
+    "args": ["url"]
   },
   {
     "command": "tables comment",
     "flags": [],
-    "args": [
-      "item-id",
-      "body"
-    ]
+    "args": ["item-id", "body"]
   },
   {
     "command": "tables create",
-    "flags": [
-      "--color",
-      "--description",
-      "--icon",
-      "--prefix",
-      "--template"
-    ],
-    "args": [
-      "name"
-    ]
+    "flags": ["--color", "--description", "--icon", "--prefix", "--template"],
+    "args": ["name"]
   },
   {
     "command": "tables create-item",
-    "flags": [
-      "--fields",
-      "--table"
-    ],
+    "flags": ["--fields", "--table"],
     "args": []
   },
   {
     "command": "tables get",
     "flags": [],
-    "args": [
-      "table-id"
-    ]
+    "args": ["table-id"]
   },
   {
     "command": "tables list",
@@ -177,20 +291,12 @@
       "--limit",
       "--sort"
     ],
-    "args": [
-      "table-id"
-    ]
+    "args": ["table-id"]
   },
   {
     "command": "tables update-item",
-    "flags": [
-      "--archive",
-      "--fields",
-      "--unarchive"
-    ],
-    "args": [
-      "item-id"
-    ]
+    "flags": ["--archive", "--fields", "--unarchive"],
+    "args": ["item-id"]
   },
   {
     "command": "users list",
@@ -201,5 +307,20 @@
     "command": "workspaces list",
     "flags": [],
     "args": []
+  },
+  {
+    "command": "workspaces member-add",
+    "flags": [],
+    "args": ["workspace-id", "user-id"]
+  },
+  {
+    "command": "workspaces member-remove",
+    "flags": [],
+    "args": ["workspace-id", "user-id"]
+  },
+  {
+    "command": "workspaces use",
+    "flags": ["--profile"],
+    "args": ["workspace-id"]
   }
 ]

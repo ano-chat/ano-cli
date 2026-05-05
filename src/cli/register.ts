@@ -18,6 +18,7 @@ import { registerDnd } from "./commands/dnd/index.js";
 import { registerNotifications } from "./commands/notifications/index.js";
 import { registerNew } from "./commands/new/index.js";
 import { registerEdit } from "./commands/edit/index.js";
+import { registerIntegrations } from "./commands/integrations/index.js";
 
 export function registerAllCommands(program: Command): void {
   registerAuth(program);
@@ -32,6 +33,7 @@ export function registerAllCommands(program: Command): void {
   registerInvite(program);
   registerDnd(program);
   registerNotifications(program);
+  registerIntegrations(program);
   registerNew(program);
   registerEdit(program);
   registerConnect(program);

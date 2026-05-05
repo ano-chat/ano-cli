@@ -4,6 +4,18 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.9.0] — 2026-05-05
+
+### Added
+
+- `ano integrations connect <app>` — authorize a third-party service
+  (Linear, GitHub, Gmail, Notion, HubSpot, PostHog, etc.) for use in
+  automations. Mints a Pipedream Connect URL and prints it as a clickable
+  hyperlink (OSC 8). After OAuth completes, the connection is persisted
+  server-side and is usable by `pipedream_run` automation actions.
+  Requires server commit including the `request_connection` op (Ano
+  monorepo PR shipping the same day).
+
 ## [2.2.0] — 2026-04-29
 
 ### Added
