@@ -19,6 +19,7 @@ import { registerNotifications } from "./commands/notifications/index.js";
 import { registerNew } from "./commands/new/index.js";
 import { registerEdit } from "./commands/edit/index.js";
 import { registerIntegrations } from "./commands/integrations/index.js";
+import { registerSession } from "./commands/session/index.js";
 
 export function registerAllCommands(program: Command): void {
   registerAuth(program);
@@ -28,6 +29,7 @@ export function registerAllCommands(program: Command): void {
   registerUsers(program);
   registerWorkspaces(program);
   registerTables(program);
+  registerSession(program);
   registerAutomations(program);
   registerCoworker(program);
   registerInvite(program);
