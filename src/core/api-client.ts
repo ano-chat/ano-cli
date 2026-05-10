@@ -186,6 +186,30 @@ export interface AnoApiClient {
     body: string;
   }): Promise<TableItemComment>;
 
+  // ── Agent Status ───────────────────────────────────────────────
+  agentSessionStart(opts: {
+    workspace_id?: string;
+    title: string;
+    branch?: string;
+    worktree?: string;
+    agent_kind?: "claude_code" | "codex" | "other";
+  }): Promise<{
+    session_id: string;
+    list_id: string;
+    workspace_id: string;
+    started_at: number;
+  }>;
+  agentSessionUpdate(opts: {
+    session_id: string;
+    status?: "active" | "paused" | "done" | "failed";
+    summary?: string;
+  }): Promise<{ session_id: string; last_update: number }>;
+  agentSessionEnd(opts: {
+    session_id: string;
+    status: "done" | "failed" | "paused";
+    summary?: string;
+  }): Promise<{ session_id: string; status: string }>;
+
   // ── Automations (parity with MCP server-tools-automations) ──────────
   automationCompile(opts: { prompt: string; workspace_id?: string }): Promise<{
     compiled: {
@@ -552,6 +576,9 @@ export function createApiClient(auth: ResolvedAuth): AnoApiClient {
     createTableItem: (opts) => post("/create_table_item", opts),
     updateTableItem: (opts) => post("/update_table_item", opts),
     addTableItemComment: (opts) => post("/add_table_item_comment", opts),
+    agentSessionStart: (opts) => post("/agent_session_start", opts),
+    agentSessionUpdate: (opts) => post("/agent_session_update", opts),
+    agentSessionEnd: (opts) => post("/agent_session_end", opts),
 
     automationCompile: (opts) => post("/automation_compile", opts),
     automationCreateCompiled: (opts) =>
