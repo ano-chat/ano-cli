@@ -4,6 +4,27 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.10.0] — 2026-05-10
+
+### Added
+
+- `ano session start|update|end` — record the workstream a Claude Code
+  (or other agent) session is working on in the workspace's Agent Status
+  list. Auto-detects branch + worktree via `git rev-parse`. Pairs with
+  the `agent_session_*` MCP ops added in the Ano monorepo on the same
+  day.
+- `ano session enable|disable|status` — manage the local opt-in flag at
+  `~/.config/ano/settings.json` (peer to `credentials.json`). Three
+  states: `unset` (default — discovery line on stderr, no posts),
+  `enabled` (post + print `session_id=<uuid>` to stdout), `disabled`
+  (silent off-switch — no output, no posts).
+- Stdout/stderr discipline is load-bearing for the paired
+  `@ano-chat/skills` ano-session skill: it greps `^session_id=` on stdout
+  to decide whether to make follow-up `update`/`end` calls. Without a
+  session_id on stdout, the skill abandons further calls — bounding the
+  attempt surface to one CLI invocation per Claude Code session for
+  opted-out users.
+
 ## [2.9.0] — 2026-05-05
 
 ### Added
