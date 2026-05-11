@@ -68,6 +68,7 @@ export function saveProfile(opts: {
   profile: string;
   key: string;
   endpoint: string;
+  workspaceId?: string;
   workspaceName: string;
 }): void {
   const creds = loadGlobalCredentials() ?? { profiles: {} };
@@ -75,8 +76,11 @@ export function saveProfile(opts: {
   creds.profiles[opts.profile] = {
     key: opts.key,
     // Omit the endpoint for the default (prod) host so the profile stays
-    // endpoint-agnostic and picks up any future default changes.
+    // endpoint-agnostic and picks up any future default changes. A
+    // resolved regional URL (`api-us`, `api-eu`) is persisted verbatim
+    // so the CLI skips the apex hop on every subsequent invocation.
     endpoint: normalized === "https://api.ano.dev" ? undefined : normalized,
+    workspace_id: opts.workspaceId,
     workspace_name: opts.workspaceName,
     created_at: new Date().toISOString(),
   };

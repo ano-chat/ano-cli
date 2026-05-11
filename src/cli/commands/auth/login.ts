@@ -8,6 +8,10 @@ import { AnoCliError } from "../../../core/errors.js";
 import { ExitCode } from "../../types.js";
 import { bold, cyan, dim, green } from "../../../util/colors.js";
 import {
+  resolveRoute,
+  shouldResolveRoute,
+} from "../../../core/region-resolver.js";
+import {
   listWorkspaces,
   mintCliKey,
   saveProfile,
@@ -147,10 +151,27 @@ export function registerAuthLogin(parent: Command): void {
           workspaceId: workspace.id,
         });
 
+        // Pin the profile to the workspace's home region when we're
+        // signing in through the geo-router apex. The Worker resolves
+        // `workspace_id` → authoritative region via KV; we save that
+        // regional URL so every subsequent command reads it from disk
+        // and skips the apex hop. Best-effort: on resolver failure
+        // (network down, KV miss, etc.) we keep the apex endpoint —
+        // the Worker still geo-routes correctly at runtime.
+        const regionalEndpoint = shouldResolveRoute(endpoint)
+          ? ((
+              await resolveRoute({
+                endpoint,
+                workspaceId: workspace.id,
+              })
+            )?.apiUrl ?? endpoint)
+          : endpoint;
+
         saveProfile({
           profile: opts.profile,
           key: apiKey,
-          endpoint,
+          endpoint: regionalEndpoint,
+          workspaceId: workspace.id,
           workspaceName: workspace.name,
         });
 
@@ -181,10 +202,23 @@ async function saveValidatedKey(opts: {
   });
   const ctx = await client.context();
 
+  // Pre-validated-key path (the `-k <key>` shortcut): once we know the
+  // workspace from /context, pin to its home region the same way the
+  // OAuth path does.
+  const regionalEndpoint = shouldResolveRoute(opts.endpoint)
+    ? ((
+        await resolveRoute({
+          endpoint: opts.endpoint,
+          workspaceId: ctx.workspace.id,
+        })
+      )?.apiUrl ?? opts.endpoint)
+    : opts.endpoint;
+
   saveProfile({
     profile: opts.profile,
     key: opts.key,
-    endpoint: opts.endpoint,
+    endpoint: regionalEndpoint,
+    workspaceId: ctx.workspace.id,
     workspaceName: ctx.workspace.name,
   });
 
