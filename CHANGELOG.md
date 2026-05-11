@@ -4,6 +4,17 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.11.1] — 2026-05-11
+
+### Fixed
+
+- `package.json` `repository.url` updated from the pre-transfer
+  `LeoNilsson/ano-cli` URL to the canonical `ano-chat/ano-cli` URL. The
+  npm publish for 2.11.0 was rejected by sigstore provenance validation
+  because the repository URL in `package.json` didn't match the GitHub
+  Actions provenance source. No functional code changes; 2.11.1 ships
+  the same code as 2.11.0 plus this registry-metadata fix.
+
 ## [2.11.0] — 2026-05-11
 
 ### Added
