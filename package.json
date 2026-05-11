@@ -1,6 +1,6 @@
 {
   "name": "@ano-chat/cli",
-  "version": "2.11.0",
+  "version": "2.11.1",
   "description": "CLI for Ano — team communication for humans and agents",
   "type": "module",
   "bin": {
@@ -42,6 +42,6 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/LeoNilsson/ano-cli.git"
+    "url": "https://github.com/ano-chat/ano-cli.git"
   }
 }
