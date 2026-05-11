@@ -3,6 +3,10 @@ import { withErrorHandler } from "../../middleware/error-handler.js";
 import { loadSession, deleteSession } from "../../../core/oauth-session.js";
 import { AuthError, NotFoundError } from "../../../core/errors.js";
 import { green } from "../../../util/colors.js";
+import {
+  resolveRoute,
+  shouldResolveRoute,
+} from "../../../core/region-resolver.js";
 import { listWorkspaces, mintCliKey, saveProfile } from "./auth-helpers.js";
 
 /**
@@ -63,11 +67,25 @@ export function registerAuthComplete(parent: Command): void {
         // didn't, the next `auth complete` would re-load the stale session
         // and re-mint, wasting an HTTP call and triggering the server's
         // auto-revoke against the key we just minted.
+        // Pin the profile to the workspace's home region when the
+        // session originated from the geo-router apex. Mirrors the
+        // `auth login` path so orchestrators get the same on-disk
+        // shape as interactive users.
+        const regionalEndpoint = shouldResolveRoute(endpoint)
+          ? ((
+              await resolveRoute({
+                endpoint,
+                workspaceId: workspace.id,
+              })
+            )?.apiUrl ?? endpoint)
+          : endpoint;
+
         try {
           saveProfile({
             profile: opts.profile,
             key: apiKey,
-            endpoint,
+            endpoint: regionalEndpoint,
+            workspaceId: workspace.id,
             workspaceName: workspace.name,
           });
         } finally {

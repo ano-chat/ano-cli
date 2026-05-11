@@ -228,6 +228,118 @@ describe("ano auth complete (integration)", () => {
     expect(loadSession()).not.toBeNull();
   });
 
+  it("resolves regional endpoint via /route when session uses apex (api.ano.dev)", async () => {
+    saveSession({
+      accessToken: "tok_alpha",
+      endpoint: "https://api.ano.dev",
+      clientId: "client_test",
+      createdAt: Date.now(),
+    });
+
+    const calls: FetchCall[] = [];
+    mockFetch((call) => {
+      calls.push(call);
+      if (call.url.endsWith("/api/cli-keys/workspaces")) {
+        return new Response(
+          JSON.stringify({
+            workspaces: [{ id: "ws_a", name: "Acme", logo_url: null }],
+          }),
+          { status: 200 },
+        );
+      }
+      if (call.url.endsWith("/api/cli-keys")) {
+        return new Response(
+          JSON.stringify({ api_key: "ano_usr_minted_xyz", key_id: "k1" }),
+          { status: 200 },
+        );
+      }
+      if (call.url.includes("/route")) {
+        return new Response(
+          JSON.stringify({
+            region: "eu",
+            apiUrl: "https://api-eu.ano.dev",
+            syncUrl: "https://sync-eu.ano.dev",
+            source: "kv",
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    });
+
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await makeProgram().parseAsync([
+      "node",
+      "ano",
+      "complete",
+      "--workspace-id",
+      "ws_a",
+    ]);
+
+    // The resolver passes URL objects to fetch; the cli-keys path uses strings.
+    // Normalize both before asserting.
+    const routeCall = calls
+      .map((c) => (typeof c.url === "string" ? c.url : String(c.url)))
+      .find(
+        (u) =>
+          u.startsWith("https://api.ano.dev/route") &&
+          u.includes("workspace_id=ws_a"),
+      );
+    expect(routeCall).toBeDefined();
+    const saved = mockSaveGlobalCredentials.mock.calls[0]?.[0] as {
+      profiles: Record<string, { endpoint?: string; workspace_id?: string }>;
+    };
+    expect(saved.profiles.default).toMatchObject({
+      endpoint: "https://api-eu.ano.dev",
+      workspace_id: "ws_a",
+    });
+  });
+
+  it("falls back to apex when /route fails (apex normalized to undefined)", async () => {
+    saveSession({
+      accessToken: "tok_alpha",
+      endpoint: "https://api.ano.dev",
+      clientId: "client_test",
+      createdAt: Date.now(),
+    });
+
+    mockFetch((call) => {
+      if (call.url.endsWith("/api/cli-keys/workspaces")) {
+        return new Response(
+          JSON.stringify({
+            workspaces: [{ id: "ws_a", name: "Acme", logo_url: null }],
+          }),
+          { status: 200 },
+        );
+      }
+      if (call.url.endsWith("/api/cli-keys")) {
+        return new Response(
+          JSON.stringify({ api_key: "ano_usr_minted_xyz", key_id: "k1" }),
+          { status: 200 },
+        );
+      }
+      // /route returns 500 → resolver yields null → caller keeps apex.
+      return new Response("boom", { status: 500 });
+    });
+
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await makeProgram().parseAsync([
+      "node",
+      "ano",
+      "complete",
+      "--workspace-id",
+      "ws_a",
+    ]);
+
+    const saved = mockSaveGlobalCredentials.mock.calls[0]?.[0] as {
+      profiles: Record<string, { endpoint?: string }>;
+    };
+    // saveProfile normalizes api.ano.dev → undefined.
+    expect(saved.profiles.default?.endpoint).toBeUndefined();
+  });
+
   it("exits with AUTH (3) when the cached session has expired", async () => {
     const sixMinutesAgo = Date.now() - 6 * 60 * 1000;
     saveSession({

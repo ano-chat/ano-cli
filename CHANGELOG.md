@@ -4,6 +4,34 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.11.0] — 2026-05-11
+
+### Added
+
+- **Region-aware login (WS-B11).** `ano auth login` and `ano auth complete`
+  now call the Worker's `/route?workspace_id=<id>` lookup after minting a
+  CLI key and persist the resolved regional API URL (`api-us.ano.dev` or
+  `api-eu.ano.dev`) directly into `~/.config/ano/credentials.json`. Every
+  subsequent command reads the regional URL from disk and skips the apex
+  geo-router hop. Mirrors the desktop + iOS clients that shipped tonight.
+- `ano auth refresh-region [--profile <name>]` — one-shot upgrade path for
+  users with pre-2.11 profiles. Re-resolves the workspace's region and
+  rewrites the profile endpoint if the apex is still pinned. Idempotent.
+- Profile records now persist `workspace_id` alongside the existing
+  `workspace_name`. `auth refresh-region` needs this to ask the Worker
+  which region a workspace lives in.
+
+### Notes
+
+- Best-effort resolution: if `/route` is unreachable or returns an
+  unexpected shape, `auth login` falls back to the apex `api.ano.dev`
+  endpoint. The CF Worker still geo-routes correctly at runtime — the
+  optimization is skipping one round-trip per command on subsequent
+  invocations, not unlocking new functionality.
+- `/route` is only mounted on `api.ano.dev`; the resolver is a no-op
+  when the user has explicitly overridden the endpoint
+  (`api-staging.ano.dev`, regional URLs, or any custom host).
+
 ## [2.10.0] — 2026-05-10
 
 ### Added

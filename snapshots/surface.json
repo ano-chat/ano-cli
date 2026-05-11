@@ -26,6 +26,13 @@
     "args": []
   },
   {
+    "command": "auth refresh-region",
+    "flags": [
+      "--profile"
+    ],
+    "args": []
+  },
+  {
     "command": "auth status",
     "flags": [],
     "args": []
