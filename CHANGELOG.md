@@ -24,6 +24,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
   session_id on stdout, the skill abandons further calls — bounding the
   attempt surface to one CLI invocation per Claude Code session for
   opted-out users.
+- `ano session update|end` treat a 404 from the server as a terminal
+  signal (the kill-switch flipped off, or the canonical list / session
+  row was deleted). The CLI silently drops the stale cached `session_id`
+  and exits 0 instead of spamming stderr with NotFoundError on every
+  milestone. The next `ano session start` is a fresh attempt.
 
 ## [2.9.0] — 2026-05-05
 

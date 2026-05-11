@@ -11,6 +11,7 @@ import {
   setAgentStatusOptIn,
   writeCachedSession,
 } from "../../../core/agent-session-config.js";
+import { NotFoundError } from "../../../core/errors.js";
 import { withErrorHandler } from "../../middleware/error-handler.js";
 import type { GlobalOptions } from "../../types.js";
 
@@ -144,11 +145,25 @@ function registerUpdate(parent: Command): void {
           | "done"
           | "failed"
           | undefined;
-        await client.agentSessionUpdate({
-          session_id: sessionId,
-          status,
-          summary: opts.summary,
-        });
+        try {
+          await client.agentSessionUpdate({
+            session_id: sessionId,
+            status,
+            summary: opts.summary,
+          });
+        } catch (err) {
+          // 404 means the session no longer exists server-side — either
+          // the global kill-switch flipped to off, the canonical list was
+          // deleted, or the row was removed. Drop the stale cache so the
+          // next milestone (and a future `session start`) doesn't keep
+          // hammering with the same dead id, and exit silently. Anything
+          // else (auth, network, 500) re-throws to the error handler.
+          if (err instanceof NotFoundError) {
+            clearCachedSession();
+            return;
+          }
+          throw err;
+        }
       }),
     );
 }
@@ -187,11 +202,22 @@ function registerEnd(parent: Command): void {
           process.exitCode = 1;
           return;
         }
-        await client.agentSessionEnd({
-          session_id: sessionId,
-          status,
-          summary: opts.summary,
-        });
+        try {
+          await client.agentSessionEnd({
+            session_id: sessionId,
+            status,
+            summary: opts.summary,
+          });
+        } catch (err) {
+          // Same logic as `update`: 404 means the session is gone (kill-
+          // switch off / list deleted / row removed). Drop the cache and
+          // exit silently rather than spamming stderr with NotFoundError.
+          if (err instanceof NotFoundError) {
+            clearCachedSession();
+            return;
+          }
+          throw err;
+        }
         clearCachedSession();
       }),
     );
