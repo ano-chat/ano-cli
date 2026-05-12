@@ -4,6 +4,51 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.13.0] — 2026-05-12
+
+### Added
+
+- **`ano-daemon`** — long-lived background process that holds the warm
+  Node bundle, eliminating the ~140 ms cold-start tax on every CLI
+  call. Measured impact at staging-from-Sweden: logical action
+  ("find #channel + send") drops from 511 ms → 251 ms (51 % faster).
+  Per-call CLI tax drops from ~135 ms to ~12 ms.
+- **`ano daemon start|stop|status`** — user-facing controls for the
+  daemon process. `status` reports PID, socket path, uptime, and the
+  daemon's CLI version.
+
+### Changed
+
+- The `ano` shim is now ~4.4 KB (down from 148 KB). The full command
+  tree is dynamic-imported only when the daemon path doesn't apply,
+  so warm-daemon calls skip the heavy parse entirely.
+- On every invocation: try the daemon socket first (~5 ms) → fall back
+  to today's direct execution path on any failure. First call after
+  install is identical to today's speed; the daemon is opportunistically
+  spawned in the background for the next call.
+
+### Bypass rules
+
+The daemon path is skipped automatically for:
+
+- `ANO_NO_DAEMON=1` env var
+- `ano daemon …` itself
+- `ano auth login | complete | refresh-region | logout` (browser/file
+  interactions clearer in the calling shell)
+- Any argv reading stdin (`--file -`, `-f -`, `--file=-`)
+
+### Internal
+
+- New protocol module (`src/daemon/protocol.ts`) defines the
+  newline-delimited JSON wire format. Protocol version `v1`.
+- The daemon includes its own CLI version in every response. On
+  CLI-version mismatch (user upgraded npm package while daemon is
+  warm) the daemon rejects the request and self-shuts-down so the
+  next call gets a fresh daemon matching the new CLI.
+- Idle exit: 10 minutes of no requests → daemon exits.
+- Serial dispatch — one command at a time per daemon process. Avoids
+  cross-request stdout/cwd/env bleed.
+
 ## [2.12.0] — 2026-05-12
 
 ### Added
