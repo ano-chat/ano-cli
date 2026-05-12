@@ -10,28 +10,39 @@ export function registerSendMessage(parent: Command): void {
     .command("send")
     .description("Send a message to a channel")
     .argument("<content>", "Message content (supports markdown)")
-    .requiredOption("-c, --channel <id>", "Channel ID")
+    .option("-c, --channel <id>", "Channel ID")
+    .option(
+      "-n, --channel-name <name>",
+      "Channel name (resolved server-side; pick this over --channel + a list lookup)",
+    )
     .option("-t, --thread <id>", "Reply in thread")
     .option("--mention <ids...>", "User IDs to @mention")
     .action(
       withErrorHandler(async (content, opts, cmd) => {
+        if (!opts.channel && !opts.channelName) {
+          throw new Error(
+            "Either --channel <id> or --channel-name <name> is required.",
+          );
+        }
         const globals = cmd.optsWithGlobals() as GlobalOptions;
         const auth = resolveAuth(globals);
         const client = createApiClient(auth);
         const result = await client.sendMessage({
           channel_id: opts.channel,
+          channel_name: opts.channelName,
           content,
           thread_id: opts.thread,
           mentions: opts.mention,
         });
 
+        const resolvedChannel = opts.channel ?? result.channel_id;
         output(globals, {
           data: result,
           title: "Message sent",
           breadcrumbs: [
             {
               action: "read_messages",
-              cmd: `ano messages read --channel ${opts.channel}`,
+              cmd: `ano messages read --channel ${resolvedChannel}`,
               description: "Read channel messages",
             },
             {
