@@ -4,6 +4,23 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.12.0] — 2026-05-12
+
+### Added
+
+- `ano messages send --channel-name <name>` (`-n`) — resolves the
+  channel name on the server in the same call as the message insert.
+  Saves the previous `ano channels list` round trip when the agent
+  knows the channel name but not the id. Works with the `<ano_payload>`
+  flow and any other "post in #foo" prompt. Pairs with the matching
+  `ano-skills` invariant update.
+
+### Changed
+
+- `ano messages send` no longer requires `--channel`. Either
+  `--channel <id>` or `--channel-name <name>` is accepted; the CLI
+  errors clearly when neither is provided.
+
 ## [2.11.1] — 2026-05-11
 
 ### Fixed

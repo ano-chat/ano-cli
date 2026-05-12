@@ -140,7 +140,11 @@ export interface AnoApiClient {
     limit?: number;
   }): Promise<{ messages: Message[] }>;
   sendMessage(opts: {
-    channel_id: string;
+    /** Either channel_id OR channel_name is required. */
+    channel_id?: string;
+    /** Server-side name → id resolution; saves a round trip vs. listing. */
+    channel_name?: string;
+    workspace_id?: string;
     content: string;
     thread_id?: string;
     mentions?: string[];
