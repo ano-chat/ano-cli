@@ -74,7 +74,15 @@ function looksLikeStdinFile(argv: string[]): boolean {
 export function shouldBypass(argv: string[]): boolean {
   if (process.env.ANO_NO_DAEMON === "1" || process.env.ANO_NO_DAEMON === "true")
     return true;
+  // Unix-domain sockets at file paths are not reliable on win32 (Node
+  // supports them since 17 but Windows path semantics + the `\\.\pipe\`
+  // requirement break our `tmpdir` assumption). Daemon is Unix-only for v1.
+  if (process.platform === "win32") return true;
   if (argv.length === 0) return true;
+  // `--agent --help` is intercepted in src/index.ts BEFORE commander
+  // runs to emit a structured JSON help envelope. The daemon dispatch
+  // would skip that interception and print textual help instead.
+  if (argv.includes("--agent") && argv.includes("--help")) return true;
   const [top, sub] = topAndSub(argv);
   if (!top) return true;
   if (BYPASS_TOP_LEVEL.has(top)) return true;
@@ -107,19 +115,20 @@ function attempt(socketPath: string, argv: string[]): Promise<boolean> {
     const sock = connect(socketPath);
     let buffer = "";
     let settled = false;
-    const cleanup = (result: boolean): void => {
+    const connectTimer = setTimeout(() => cleanup(false), CONNECT_TIMEOUT_MS);
+    const responseTimer = setTimeout(() => cleanup(false), RESPONSE_TIMEOUT_MS);
+    function cleanup(result: boolean): void {
       if (settled) return;
       settled = true;
+      clearTimeout(connectTimer);
+      clearTimeout(responseTimer);
       try {
         sock.destroy();
       } catch {
         // ignore
       }
       resolve(result);
-    };
-
-    const connectTimer = setTimeout(() => cleanup(false), CONNECT_TIMEOUT_MS);
-    const responseTimer = setTimeout(() => cleanup(false), RESPONSE_TIMEOUT_MS);
+    }
 
     sock.once("connect", () => {
       clearTimeout(connectTimer);
@@ -140,8 +149,6 @@ function attempt(socketPath: string, argv: string[]): Promise<boolean> {
       const nl = buffer.indexOf("\n");
       if (nl === -1) return;
       const line = buffer.slice(0, nl);
-      clearTimeout(connectTimer);
-      clearTimeout(responseTimer);
       let resp: DaemonResponse;
       try {
         resp = JSON.parse(line) as DaemonResponse;
@@ -184,7 +191,7 @@ function spawnDaemon(): void {
     const child = spawn(node, [script, "daemon", "serve"], {
       detached: true,
       stdio: "ignore",
-      env: process.env,
+      env: cleanEnv(),
     });
     child.unref();
   } catch {

@@ -7,7 +7,7 @@
  * we bypass when we shouldn't), so this is the highest-leverage place
  * to lock down behaviour.
  */
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { shouldBypass } from "../../src/daemon/client.js";
 
 const ORIG_ENV = { ...process.env };
@@ -15,6 +15,8 @@ const ORIG_ENV = { ...process.env };
 afterEach(() => {
   for (const k of Object.keys(process.env)) delete process.env[k];
   Object.assign(process.env, ORIG_ENV);
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("shouldBypass", () => {
@@ -105,5 +107,26 @@ describe("shouldBypass", () => {
   it("treats unrecognised top-level commands as eligible (daemon will error normally)", () => {
     delete process.env.ANO_NO_DAEMON;
     expect(shouldBypass(["nonsense", "foo"])).toBe(false);
+  });
+
+  it("bypasses on win32 (Unix-socket assumptions don't hold)", () => {
+    delete process.env.ANO_NO_DAEMON;
+    const spy = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    expect(shouldBypass(["channels", "list", "--agent"])).toBe(true);
+    spy.mockRestore();
+  });
+
+  it("bypasses `--agent --help` so the structured-JSON help handler runs", () => {
+    delete process.env.ANO_NO_DAEMON;
+    // src/index.ts intercepts this combo BEFORE commander; daemon
+    // dispatch would skip the interception and emit textual help.
+    expect(shouldBypass(["channels", "list", "--agent", "--help"])).toBe(true);
+    expect(shouldBypass(["--agent", "--help"])).toBe(true);
+    expect(shouldBypass(["channels", "--help", "--agent"])).toBe(true);
+  });
+
+  it("does NOT bypass plain --help (commander handles it the same in either path)", () => {
+    delete process.env.ANO_NO_DAEMON;
+    expect(shouldBypass(["channels", "list", "--help"])).toBe(false);
   });
 });

@@ -22,15 +22,15 @@
  * If one slips through and process.stdin is read here, the daemon would
  * hang — guard rails live on the client side.
  */
+import { createServer, type Server, type Socket } from "node:net";
 import {
-  createServer,
-  type Server,
-  type Socket,
-  type AddressInfo,
-} from "node:net";
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname } from "node:path";
-import { Command } from "commander";
 import {
   DEFAULT_IDLE_MS,
   PROTOCOL_VERSION,
@@ -325,11 +325,10 @@ export function startDaemon(opts: DaemonStartOptions = {}): {
 
   ctx.server.listen(socketPath, () => {
     // Restrict to owner-only — the socket lets you run any `ano` command
-    // as the daemon's user.
+    // as the daemon's user. `Server.listen` on a path doesn't accept a
+    // mode arg, so chmod after bind.
     try {
-      // `chmod` via fs because Server.listen on a path doesn't accept mode.
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      require("node:fs").chmodSync(socketPath, 0o600);
+      chmodSync(socketPath, 0o600);
     } catch {
       // ignore — best effort
     }
@@ -356,16 +355,3 @@ export function startDaemon(opts: DaemonStartOptions = {}): {
     shutdown: ctx.shutdown,
   };
 }
-
-// Allow `node dist/daemon-server.js` to bootstrap directly when the build
-// emits this file as an entry. Skipped under test.
-declare const __ANO_DAEMON_AUTOSTART__: boolean | undefined;
-if (
-  typeof __ANO_DAEMON_AUTOSTART__ !== "undefined" &&
-  __ANO_DAEMON_AUTOSTART__
-) {
-  startDaemon();
-}
-
-// Avoid TS complaining about the unused AddressInfo import.
-export type _AddressInfo = AddressInfo;
