@@ -4,6 +4,29 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.18.1] — 2026-05-13
+
+### Fixed — daemon health pre-flight (no more 30s hangs)
+
+The CLI now sends a fast `ping` (≤1s deadline) to the daemon before
+every `exec` dispatch. If the daemon socket exists but the process
+can't reply — wedged dispatch loop, OOM thrash, partial protocol
+upgrade, OS sleep recovery — the client SIGKILLs the stale process
+via the PID file, unlinks the socket, fires off a fresh daemon, and
+falls back to direct execution for the current call. Previous
+behavior: wait the full 30s exec timeout for a reply that never
+came.
+
+Also tightened the exec response deadline from 30s → 10s. The
+daemon's own per-dispatch timeout is still 60s; the client now
+gives up sooner because the pre-flight ping has already weeded out
+unresponsive daemons.
+
+Catches the same drift case where an upgraded CLI binary was still
+talking to a daemon spawned by the prior version — now the version
+mismatch surfaces in the ping reply (∼50 ms) rather than waiting
+on the next `exec`.
+
 ## [2.18.0] — 2026-05-13
 
 ### Added — file attachments via `--file`

@@ -18,15 +18,18 @@
  *   • Any argv hint that the command will read stdin (`--file -`, etc.).
  */
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { connect } from "node:net";
 import {
   PROTOCOL_VERSION,
+  defaultPidPath,
   defaultSocketPath,
   frame,
   type DaemonResponse,
   type ExecRequest,
   type ExecResponse,
+  type PingRequest,
+  type PingResponse,
 } from "./protocol.js";
 
 declare const __VERSION__: string;
@@ -34,7 +37,21 @@ const CLI_VERSION =
   typeof __VERSION__ !== "undefined" ? __VERSION__ : "0.0.0-dev";
 
 const CONNECT_TIMEOUT_MS = 150;
-const RESPONSE_TIMEOUT_MS = 30 * 1000;
+/**
+ * Pre-flight ping deadline. The ping handler is in the per-frame
+ * synchronous path on the daemon (no queue, no I/O), so 1 second is
+ * generous for a healthy daemon and tight enough to surface a wedged
+ * one before the user notices the hang. See `ensureHealthy()`.
+ */
+const PING_TIMEOUT_MS = 1000;
+/**
+ * Exec response deadline. Drops the prior 30s window to 10s — the
+ * daemon's own per-dispatch timeout is 60s, but the client doesn't
+ * need to wait that long: a dispatch that's still running after 10s
+ * is overwhelmingly likely to be a wedge or runaway. Pre-flight ping
+ * already weeded out unresponsive daemons.
+ */
+const RESPONSE_TIMEOUT_MS = 10 * 1000;
 
 // `dev` runs sanity checks that need to read the calling process's
 // profile/env directly AND probe daemon state — must run in-process.
@@ -99,17 +116,156 @@ export function shouldBypass(argv: string[]): boolean {
  * exec response (in which case `process.exit` is called synchronously
  * with the captured exit code and the function never resolves to its
  * caller). Returns `false` on any failure → caller should run directly.
+ *
+ * Flow:
+ *   1. Pre-flight ping (1s timeout). If the socket exists but the
+ *      daemon doesn't pong, treat it as wedged: SIGKILL via the PID
+ *      file, unlink the socket, fork a fresh daemon, and fall back
+ *      to direct execution for THIS call. The previous design just
+ *      waited the full 30s exec timeout for a reply that never came.
+ *   2. If the daemon's reported `cliVersion` doesn't match ours, ask
+ *      it to shut down (it'll do so itself when we send exec, but a
+ *      clean ping-driven respawn avoids the noisy version_mismatch
+ *      reply path on the next call). Fall back to direct.
+ *   3. Healthy daemon → dispatch the exec and proxy stdout/stderr.
  */
 export async function runWithDaemon(argv: string[]): Promise<boolean> {
   const socketPath = defaultSocketPath();
-  const handled = await attempt(socketPath, argv);
-  if (!handled && !existsSync(socketPath)) {
-    // Fire-and-forget: pre-warm the daemon for the next call. Detached
-    // so the parent shell doesn't wait, stdio ignored so we don't leak
-    // file descriptors.
+  const health = await ensureHealthy(socketPath);
+  if (health === "no-daemon") {
+    // Fire-and-forget: pre-warm the daemon for the next call.
     spawnDaemon();
+    return false;
   }
-  return handled;
+  if (health === "killed-and-respawned") {
+    // We killed a wedged daemon and started a fresh one in the
+    // background; THIS call still falls back to direct execution so
+    // the user doesn't pay the cold-start tax twice.
+    return false;
+  }
+  // health === "healthy" — proceed with exec.
+  return attempt(socketPath, argv);
+}
+
+export type HealthResult = "healthy" | "no-daemon" | "killed-and-respawned";
+
+/**
+ * Pre-flight: connect + ping with a tight deadline, killing the daemon
+ * if it doesn't pong in time. Catches every flavor of "daemon socket
+ * exists but the process can't service requests" — wedged dispatch
+ * loop, OOM thrash, partial protocol upgrade, OS sleep recovery, etc.
+ *
+ * Exported for tests; production callers go through `runWithDaemon`.
+ */
+export async function ensureHealthy(socketPath: string): Promise<HealthResult> {
+  if (!existsSync(socketPath)) return "no-daemon";
+  const ping = await pingDaemon(socketPath);
+  if (ping.kind === "ok") {
+    if (ping.cliVersion !== CLI_VERSION) {
+      // Version drift — kill + respawn so the NEXT call gets a daemon
+      // matching this client. Falling back this call avoids racing
+      // the daemon's own self-shutdown (which only fires on `exec`,
+      // not `ping`).
+      forceKillDaemon(socketPath, ping.pid);
+      spawnDaemon();
+      return "killed-and-respawned";
+    }
+    return "healthy";
+  }
+  // ping.kind === "timeout" or "error" → daemon socket exists but
+  // isn't replying. Force-cleanup and respawn.
+  const pidFromFile = readPidFile();
+  forceKillDaemon(socketPath, pidFromFile);
+  spawnDaemon();
+  return "killed-and-respawned";
+}
+
+type PingOutcome =
+  | { kind: "ok"; pid: number; cliVersion: string }
+  | { kind: "timeout" }
+  | { kind: "error" };
+
+function pingDaemon(socketPath: string): Promise<PingOutcome> {
+  return new Promise((resolve) => {
+    const sock = connect(socketPath);
+    let buffer = "";
+    let settled = false;
+    const timer = setTimeout(() => done({ kind: "timeout" }), PING_TIMEOUT_MS);
+    function done(result: PingOutcome): void {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        sock.destroy();
+      } catch {
+        // ignore
+      }
+      resolve(result);
+    }
+    sock.once("connect", () => {
+      const req: PingRequest = { method: "ping", id: 0, v: PROTOCOL_VERSION };
+      sock.write(frame(req));
+    });
+    sock.setEncoding("utf8");
+    sock.on("data", (chunk: string) => {
+      buffer += chunk;
+      const nl = buffer.indexOf("\n");
+      if (nl === -1) return;
+      const line = buffer.slice(0, nl);
+      try {
+        const resp = JSON.parse(line) as DaemonResponse;
+        if (resp.ok && "pong" in resp) {
+          const p = resp as PingResponse;
+          done({ kind: "ok", pid: p.pid, cliVersion: p.cliVersion });
+          return;
+        }
+        // ok=false or unexpected shape → treat as broken.
+        done({ kind: "error" });
+      } catch {
+        done({ kind: "error" });
+      }
+    });
+    sock.on("error", () => done({ kind: "error" }));
+  });
+}
+
+function readPidFile(): number | null {
+  try {
+    const raw = readFileSync(defaultPidPath(), "utf8").trim();
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Force-cleanup a wedged daemon: SIGKILL the process (via PID file
+ * if available) and unlink the stale socket so the next `connect()`
+ * doesn't immediately succeed against an EBADF socket. Both steps
+ * are best-effort — failures are swallowed because we're already in
+ * the unhappy path.
+ */
+function forceKillDaemon(socketPath: string, pid: number | null): void {
+  if (pid && pid > 0 && pid !== process.pid) {
+    try {
+      // SIGKILL — the daemon's own SIGTERM handler may itself be
+      // wedged; we don't have time for a graceful drain.
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // Process may already be gone, or owned by another user.
+    }
+  }
+  try {
+    unlinkSync(socketPath);
+  } catch {
+    // Socket may already be gone (daemon cleaned up on exit).
+  }
+  try {
+    unlinkSync(defaultPidPath());
+  } catch {
+    // ignore
+  }
 }
 
 function attempt(socketPath: string, argv: string[]): Promise<boolean> {
