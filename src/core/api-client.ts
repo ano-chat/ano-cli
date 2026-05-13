@@ -70,6 +70,15 @@ export interface SendDmResult {
   recipient: string;
 }
 
+/** Group DM (Slack MPIM) — sender + ≥2 other recipients. */
+export interface SendGroupDmResult {
+  ok: boolean;
+  message_id: string;
+  channel_id: string;
+  recipients: string[];
+  channel_type: "group_dm";
+}
+
 // ── Table types ──────────────────────────────────────────────────
 
 export interface TableField {
@@ -150,12 +159,19 @@ export interface AnoApiClient {
     mentions?: string[];
   }): Promise<SendResult>;
   sendDm(opts: {
+    /** Single recipient (1:1 DM). Either this OR recipient_names. */
     recipient_name?: string;
+    /** Single recipient by email (1:1 DM only). */
     recipient_email?: string;
+    /** Single recipient by id (1:1 DM). Either this OR user_ids. */
     user_id?: string;
+    /** ≥2 entries → group DM. Combined with `recipient_name` if both set. */
+    recipient_names?: string[];
+    /** ≥2 entries → group DM. Combined with `user_id` if both set. */
+    user_ids?: string[];
     content: string;
     workspace_id?: string;
-  }): Promise<SendDmResult>;
+  }): Promise<SendDmResult | SendGroupDmResult>;
   typing(opts: { channel_id: string }): Promise<{ ok: boolean }>;
   listTables(opts?: { workspace_id?: string }): Promise<Table[]>;
   getTable(opts: { table_id: string }): Promise<Table>;
