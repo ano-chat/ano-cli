@@ -120,6 +120,19 @@ describe("retryFetch — 5xx", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it("default maxRetries=2 also caps 502 (3 total attempts then throw)", async () => {
+    const fetchMock = mockFetch([
+      jsonResponse(502),
+      jsonResponse(502),
+      jsonResponse(502),
+      jsonResponse(200), // would succeed but we never reach it
+    ]);
+    await expect(
+      retryFetch("http://x/", {}, { baseDelayMs: 1 }),
+    ).rejects.toThrow("Server error: 502");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it("caps 500 (application error) at 2 retries even when maxRetries is higher", async () => {
     const fetchMock = mockFetch([
       jsonResponse(500),

@@ -246,8 +246,10 @@ function attachConnection(socket: Socket, ctx: ServerContext): void {
             });
           } catch (err) {
             if (timer) clearTimeout(timer);
-            const message =
-              err instanceof Error ? (err.stack ?? err.message) : String(err);
+            // Only `err.message` — `err.stack` would leak the daemon's
+            // absolute file paths and noisy frames into the client's
+            // stderr. Stack belongs in daemon-side logs (todo: log file).
+            const message = err instanceof Error ? err.message : String(err);
             reply({
               id: req.id,
               ok: false,
