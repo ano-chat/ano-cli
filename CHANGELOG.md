@@ -4,6 +4,41 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.13.2] — 2026-05-13
+
+### Changed — spotless CLI failure mode
+
+The CLI's underlying `retryFetch` previously retried HTTP 429 (rate
+limit) responses silently with exponential backoff (up to ~30 s per
+attempt, 10 attempts). On rapid-fire calls that tripped the server's
+60 req/min limit, this turned a fast error into a multi-second hang
+inside the daemon's serial dispatch — the very thing the v2.13.1
+timeout fix was a band-aid for.
+
+New defaults match the SKILL.md contract — fail fast, surface the
+exit code, let the caller decide:
+
+- **HTTP 429** → return immediately, no waiting. The api-client throws
+  `RateLimitError` → CLI exits with code 5. Agent backs off per the
+  documented "wait 10+ seconds" rule.
+- **Network errors** (`ECONNREFUSED`, `ETIMEDOUT`, etc.) → max 2
+  retries by default (was 10). A stuck connection no longer adds
+  ~30 s to a CLI command.
+- **5xx (502/503/504)** — same retry logic as before, but the new
+  default `maxRetries=2` applies (was 10). `500` is still capped at
+  2 (application errors aren't usually transient).
+- **Other 4xx** → unchanged: `PermanentError`, no retry.
+
+### Internal
+
+- `retryFetch` accepts a new `retryRateLimit?: boolean` option.
+  Default `false` (CLI behaviour). The `bridge/` long-running
+  connector (used by `ano connect` to OpenClaw) opts back into the
+  historical generous retry budget via
+  `{ maxRetries: 10, baseDelayMs: 1000, maxDelayMs: 30000, retryRateLimit: true }`.
+- New `tests/unit/retry.test.ts` (11 cases) pins the new defaults
+  and the bridge override path.
+
 ## [2.13.1] — 2026-05-13
 
 ### Fixed
