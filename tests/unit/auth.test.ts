@@ -146,4 +146,52 @@ describe("resolveAuth", () => {
 
     expect(() => resolveAuth(globals())).toThrow(AuthError);
   });
+
+  it("--profile selects a named profile from credentials", () => {
+    mockLoadProjectConfig.mockReturnValue(null);
+    mockLoadGlobalCredentials.mockReturnValue({
+      profiles: {
+        default: {
+          key: "staging-key",
+          endpoint: "https://api-staging.ano.dev",
+          created_at: "",
+        },
+        local: {
+          key: "local-key",
+          endpoint: "http://127.0.0.1:3001",
+          created_at: "",
+        },
+      },
+    });
+
+    const result = resolveAuth(globals({ profile: "local" }));
+    expect(result.key).toBe("local-key");
+    expect(result.endpoint).toBe("http://127.0.0.1:3001");
+    expect(result.source).toBe("global");
+  });
+
+  it("--profile errors when the named profile is missing (lists alternatives)", () => {
+    mockLoadProjectConfig.mockReturnValue(null);
+    mockLoadGlobalCredentials.mockReturnValue({
+      profiles: {
+        default: { key: "k", created_at: "" },
+        staging: { key: "k2", created_at: "" },
+      },
+    });
+
+    expect(() => resolveAuth(globals({ profile: "local" }))).toThrow(
+      /Profile 'local' not found.*default, staging/,
+    );
+  });
+
+  it("--profile does NOT silently fall through to default when missing", () => {
+    mockLoadProjectConfig.mockReturnValue(null);
+    mockLoadGlobalCredentials.mockReturnValue({
+      profiles: { default: { key: "default-key", created_at: "" } },
+    });
+
+    expect(() => resolveAuth(globals({ profile: "nonexistent" }))).toThrow(
+      AuthError,
+    );
+  });
 });

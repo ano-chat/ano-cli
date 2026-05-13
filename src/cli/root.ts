@@ -10,9 +10,7 @@ export function createProgram(): Command {
     .version(version)
     .description("CLI for Ano — team communication for humans and agents")
     .addOption(
-      new Option("-k, --key <key>", "API key (ano_cwk_...)").env(
-        "ANO_API_KEY",
-      ),
+      new Option("-k, --key <key>", "API key (ano_cwk_...)").env("ANO_API_KEY"),
     )
     .addOption(
       new Option("-e, --endpoint <url>", "API endpoint")
@@ -24,6 +22,12 @@ export function createProgram(): Command {
         "-w, --workspace <id>",
         "Workspace ID (if multi-workspace)",
       ).env("ANO_WORKSPACE_ID"),
+    )
+    .addOption(
+      new Option(
+        "-p, --profile <name>",
+        "Profile to read auth from (~/.config/ano/credentials.json)",
+      ).env("ANO_PROFILE"),
     )
     .addOption(
       new Option("-j, --json", "Output as JSON envelope with breadcrumbs"),
