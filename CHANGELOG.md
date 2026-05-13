@@ -4,6 +4,31 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.16.2] — 2026-05-13
+
+### Fixed — daemon read wrong credentials.json under HOME redirect
+
+`src/core/config.ts` cached `CONFIG_DIR = join(homedir(), ".config", "ano")`
+at module load time. The daemon imports `config.ts` once at startup,
+freezing the path against the daemon's startup HOME.
+
+When a request came from the Ano in-app PTY shell (HOME redirected to
+`~/.ano/dev/shell-home`), the daemon's `dispatch()` correctly replaces
+`process.env` with the caller's env — but `loadGlobalCredentials()`
+still used the cached `CONFIG_DIR` and read the wrong file. Result:
+`ano messages send` from the in-app shell hit STAGING (the daemon's
+own `default` profile in main creds) instead of the LOCAL endpoint
+the in-app shell expected (its `default` profile in shell-home creds).
+
+Smoke didn't catch this because `dev` is in the daemon-bypass list —
+it ran in the calling process where `os.homedir()` returns the
+correct redirected HOME.
+
+Fix: resolve `configDir()` per call via `homedir()` instead of
+caching at module load. Three regression tests in
+`tests/unit/config.test.ts` pin the per-call resolution + the
+HOME-switch behaviour.
+
 ## [2.16.1] — 2026-05-13
 
 ### Fixed (review pass)
