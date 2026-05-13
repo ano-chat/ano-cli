@@ -302,6 +302,36 @@ describe("resolveAuth — auto-local in monorepo", () => {
     expect(result.source).toBe("global");
   });
 
+  it("ANO_NO_AUTO_LOCAL=true (project-wide convention) also disables", () => {
+    withDevLocalRunning();
+    process.env.ANO_NO_AUTO_LOCAL = "true";
+    mockLoadProjectConfig.mockReturnValue(null);
+    mockLoadGlobalCredentials.mockReturnValue({
+      profiles: {
+        default: { key: "staging-key", created_at: "" },
+        local: { key: "local-key", created_at: "" },
+      },
+    });
+
+    const result = resolveAuth(globals());
+    expect(result.source).toBe("global");
+  });
+
+  it("ANO_NO_AUTO_LOCAL=TRUE (case-insensitive) also disables", () => {
+    withDevLocalRunning();
+    process.env.ANO_NO_AUTO_LOCAL = "TRUE";
+    mockLoadProjectConfig.mockReturnValue(null);
+    mockLoadGlobalCredentials.mockReturnValue({
+      profiles: {
+        default: { key: "staging-key", created_at: "" },
+        local: { key: "local-key", created_at: "" },
+      },
+    });
+
+    const result = resolveAuth(globals());
+    expect(result.source).toBe("global");
+  });
+
   it("explicit --profile default still works (overrides auto-pick)", () => {
     withDevLocalRunning();
     mockLoadProjectConfig.mockReturnValue(null);

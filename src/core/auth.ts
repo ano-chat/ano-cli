@@ -62,10 +62,10 @@ export function resolveAuth(globals: GlobalOptions): ResolvedAuth {
     }
 
     // Auto-local: CWD is inside a monorepo with a running dev:local stack.
-    if (process.env.ANO_NO_AUTO_LOCAL !== "1") {
+    if (!isEnvFlagSet("ANO_NO_AUTO_LOCAL")) {
       const local = creds.profiles.local;
       if (local?.key && isUnderRunningDevLocal(process.cwd())) {
-        if (process.env.ANO_QUIET_PROFILE_HINT !== "1") {
+        if (!isEnvFlagSet("ANO_QUIET_PROFILE_HINT")) {
           process.stderr.write(
             "→ profile: local (auto — dev:local stack detected; pass --profile default to override)\n",
           );
@@ -89,6 +89,18 @@ export function resolveAuth(globals: GlobalOptions): ResolvedAuth {
   }
 
   throw new AuthError("No API key found. Run `ano auth login` or pass --key");
+}
+
+/**
+ * Match the project-wide convention for boolean env vars: accept both
+ * "1" and "true" (case-insensitive). Mirrors `shouldBypass` in
+ * `src/daemon/client.ts`.
+ */
+function isEnvFlagSet(name: string): boolean {
+  const v = process.env[name];
+  if (!v) return false;
+  const lower = v.toLowerCase();
+  return lower === "1" || lower === "true";
 }
 
 /**

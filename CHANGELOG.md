@@ -4,6 +4,17 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.16.1] — 2026-05-13
+
+### Fixed (review pass)
+
+- `ANO_NO_AUTO_LOCAL` and `ANO_QUIET_PROFILE_HINT` now accept both
+  `"1"` and `"true"` (case-insensitive) — matches the convention
+  every other env-var check in the CLI uses (e.g. `ANO_NO_DAEMON`).
+  Previously only `"1"` worked; `=true` was silently ignored. Helper
+  extracted as `isEnvFlagSet()` for consistency across new env vars.
+- 2 new tests pin both the `=true` and `=TRUE` paths.
+
 ## [2.16.0] — 2026-05-13
 
 ### Added — auto-local in monorepo
