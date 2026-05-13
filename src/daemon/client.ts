@@ -36,7 +36,9 @@ const CLI_VERSION =
 const CONNECT_TIMEOUT_MS = 150;
 const RESPONSE_TIMEOUT_MS = 30 * 1000;
 
-const BYPASS_TOP_LEVEL = new Set(["daemon"]);
+// `dev` runs sanity checks that need to read the calling process's
+// profile/env directly AND probe daemon state — must run in-process.
+const BYPASS_TOP_LEVEL = new Set(["daemon", "dev"]);
 const BYPASS_NESTED: Array<[string, string]> = [
   ["auth", "login"],
   ["auth", "complete"],
