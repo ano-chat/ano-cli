@@ -61,6 +61,8 @@ export interface SendResult {
   message_id: string;
   channel_id: string;
   thread_id?: string;
+  /** Present when `attachments[]` was sent. */
+  attachment_ids?: string[];
 }
 
 export interface SendDmResult {
@@ -68,6 +70,7 @@ export interface SendDmResult {
   message_id: string;
   channel_id: string;
   recipient: string;
+  attachment_ids?: string[];
 }
 
 /** Group DM (Slack MPIM) — sender + ≥2 other recipients. */
@@ -77,6 +80,25 @@ export interface SendGroupDmResult {
   channel_id: string;
   recipients: string[];
   channel_type: "group_dm";
+  attachment_ids?: string[];
+}
+
+/**
+ * Response of `POST /mcp/upload`. Mirrors `uploadSuccessSchema` in
+ * `@ano/shared/api/upload`; the CLI passes the row back verbatim on
+ * the next `send_message` / `send_dm`.
+ */
+export interface UploadedAttachment {
+  id: string;
+  filename: string;
+  file_type: string;
+  file_size: number;
+  file_category: "image" | "video" | "audio" | "document" | "other";
+  storage_key: string;
+  storage_url: string;
+  thumbnail_url: string | null;
+  width: number | null;
+  height: number | null;
 }
 
 // ── Table types ──────────────────────────────────────────────────
@@ -157,6 +179,8 @@ export interface AnoApiClient {
     content: string;
     thread_id?: string;
     mentions?: string[];
+    /** Already-uploaded rows from `client.upload(...)`. Pass verbatim. */
+    attachments?: UploadedAttachment[];
   }): Promise<SendResult>;
   sendDm(opts: {
     /** Single recipient (1:1 DM). Either this OR recipient_names. */
@@ -171,7 +195,21 @@ export interface AnoApiClient {
     user_ids?: string[];
     content: string;
     workspace_id?: string;
+    /** Already-uploaded rows from `client.upload(...)`. Pass verbatim. */
+    attachments?: UploadedAttachment[];
   }): Promise<SendDmResult | SendGroupDmResult>;
+  /**
+   * Upload a local file via `POST /mcp/upload`. Returns the
+   * `UploadedAttachment` row to pass back on a subsequent send.
+   */
+  upload(opts: {
+    /** Raw bytes of the file. */
+    body: Buffer | Uint8Array;
+    /** Display name preserved on the attachment row. */
+    filename: string;
+    /** RFC 2046 MIME type. Required — the server rejects octet-stream. */
+    contentType: string;
+  }): Promise<UploadedAttachment>;
   typing(opts: { channel_id: string }): Promise<{ ok: boolean }>;
   listTables(opts?: { workspace_id?: string }): Promise<Table[]>;
   getTable(opts: { table_id: string }): Promise<Table>;
@@ -548,6 +586,40 @@ export function createApiClient(auth: ResolvedAuth): AnoApiClient {
     }
   }
 
+  async function uploadFile(opts: {
+    body: Buffer | Uint8Array;
+    filename: string;
+    contentType: string;
+  }): Promise<UploadedAttachment> {
+    const fd = new FormData();
+    // Node's undici Blob accepts a Uint8Array; copy via Buffer.from to
+    // guarantee a fresh ArrayBuffer (some Node versions are picky about
+    // shared underlying buffers).
+    const blob = new Blob([Buffer.from(opts.body)], { type: opts.contentType });
+    fd.append("file", blob, opts.filename);
+    try {
+      // No retryFetch — multipart bodies are not safely re-playable
+      // (FormData stream consumption + 25 MB ceiling). One shot.
+      const res = await fetch(`${endpoint}/mcp/upload`, {
+        method: "POST",
+        headers: authHeader,
+        body: fd,
+      });
+      if (!res.ok) return handleHttpError(res);
+      return (await res.json()) as UploadedAttachment;
+    } catch (err) {
+      if (err instanceof PermanentError) return handlePermanentError(err);
+      if (
+        err instanceof AuthError ||
+        err instanceof NotFoundError ||
+        err instanceof RateLimitError ||
+        err instanceof ApiError
+      )
+        throw err;
+      throw new NetworkError(`Upload failed: ${(err as Error).message}`);
+    }
+  }
+
   async function get<T>(
     path: string,
     params?: Record<string, string>,
@@ -634,6 +706,7 @@ export function createApiClient(auth: ResolvedAuth): AnoApiClient {
     notificationPreferencesSet: (opts) =>
       post("/notification_preferences_set", opts as Record<string, unknown>),
     requestConnection: (opts) => post("/request_connection", opts),
+    upload: (opts) => uploadFile(opts),
   };
 }
 
