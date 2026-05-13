@@ -13,11 +13,31 @@ import {
 } from "../../../core/region-resolver.js";
 import {
   listWorkspaces,
+  listWorkspacesGlobal,
   mintCliKey,
+  regionalApiUrl,
   saveProfile,
   stripTrailingSlash,
+  type Region,
   type WorkspaceRow,
 } from "./auth-helpers.js";
+
+/**
+ * Try the cross-region `/cp/workspaces` lister first; fall back to
+ * the regional `/api/cli-keys/workspaces` if it 404s (older server /
+ * dev env without `/cp/*` deployed). The global path is the only one
+ * that returns cross-region memberships — without it, a US-resident
+ * caller hitting `api.ano.dev` would never see their EU-pinned
+ * workspaces in the picker.
+ */
+async function listWorkspacesForLogin(opts: {
+  endpoint: string;
+  accessToken: string;
+}): Promise<WorkspaceRow[]> {
+  const global = await listWorkspacesGlobal(opts);
+  if (global !== null) return global;
+  return await listWorkspaces(opts);
+}
 
 const DEFAULT_CLIENT_IDS: Record<string, string> = {
   "https://api-staging.ano.dev": "client_01KG774HCH15HC3EN79E7A9BV4",
@@ -101,7 +121,7 @@ export function registerAuthLogin(parent: Command): void {
               },
         });
 
-        const workspaces = await listWorkspaces({
+        const workspaces = await listWorkspacesForLogin({
           endpoint,
           accessToken: oauth.accessToken,
         });
@@ -126,6 +146,12 @@ export function registerAuthLogin(parent: Command): void {
                 id: w.id,
                 name: w.name,
                 logo_url: w.logo_url ?? null,
+                // Surface region so the orchestrator can `auth complete
+                // --workspace-id <id>` and have the CLI mint at the
+                // right regional endpoint without an extra resolver
+                // round-trip. Optional — older CLIs ignore unknown
+                // fields, older servers omit it (legacy list path).
+                region: w.region,
               })),
             }) + "\n",
           );
@@ -145,27 +171,40 @@ export function registerAuthLogin(parent: Command): void {
           requestedId: opts.workspaceId,
         });
 
+        // Resolve the workspace's region BEFORE minting. api_keys
+        // rows are FK'd to `workspaces(id)` in regional Postgres, so
+        // a key for an EU workspace MUST be created via
+        // `api-eu.ano.dev/api/cli-keys` — minting at the apex (which
+        // CF DNS resolves to US today) would fail the FK check for
+        // an EU workspace.
+        //
+        // Priority order:
+        //   1. workspace.region from `/cp/workspaces` — authoritative,
+        //      no extra round-trip
+        //   2. `/route?workspace_id=...` resolver — covers the
+        //      fallback case where the server is on a vintage that
+        //      didn't return region from /cp/workspaces (shouldn't
+        //      happen with a paired release, but defensive)
+        //   3. The configured endpoint as-is
+        const resolvedRegion: Region | null =
+          workspace.region ??
+          (shouldResolveRoute(endpoint)
+            ? ((
+                await resolveRoute({
+                  endpoint,
+                  workspaceId: workspace.id,
+                })
+              )?.region ?? null)
+            : null);
+        const regionalEndpoint = resolvedRegion
+          ? regionalApiUrl(resolvedRegion)
+          : endpoint;
+
         const apiKey = await mintCliKey({
-          endpoint,
+          endpoint: regionalEndpoint,
           accessToken: oauth.accessToken,
           workspaceId: workspace.id,
         });
-
-        // Pin the profile to the workspace's home region when we're
-        // signing in through the geo-router apex. The Worker resolves
-        // `workspace_id` → authoritative region via KV; we save that
-        // regional URL so every subsequent command reads it from disk
-        // and skips the apex hop. Best-effort: on resolver failure
-        // (network down, KV miss, etc.) we keep the apex endpoint —
-        // the Worker still geo-routes correctly at runtime.
-        const regionalEndpoint = shouldResolveRoute(endpoint)
-          ? ((
-              await resolveRoute({
-                endpoint,
-                workspaceId: workspace.id,
-              })
-            )?.apiUrl ?? endpoint)
-          : endpoint;
 
         saveProfile({
           profile: opts.profile,
@@ -173,6 +212,7 @@ export function registerAuthLogin(parent: Command): void {
           endpoint: regionalEndpoint,
           workspaceId: workspace.id,
           workspaceName: workspace.name,
+          region: resolvedRegion ?? undefined,
         });
 
         const displayName = oauth.user
@@ -205,14 +245,13 @@ async function saveValidatedKey(opts: {
   // Pre-validated-key path (the `-k <key>` shortcut): once we know the
   // workspace from /context, pin to its home region the same way the
   // OAuth path does.
-  const regionalEndpoint = shouldResolveRoute(opts.endpoint)
-    ? ((
-        await resolveRoute({
-          endpoint: opts.endpoint,
-          workspaceId: ctx.workspace.id,
-        })
-      )?.apiUrl ?? opts.endpoint)
-    : opts.endpoint;
+  const route = shouldResolveRoute(opts.endpoint)
+    ? await resolveRoute({
+        endpoint: opts.endpoint,
+        workspaceId: ctx.workspace.id,
+      })
+    : null;
+  const regionalEndpoint = route?.apiUrl ?? opts.endpoint;
 
   saveProfile({
     profile: opts.profile,
@@ -220,6 +259,7 @@ async function saveValidatedKey(opts: {
     endpoint: regionalEndpoint,
     workspaceId: ctx.workspace.id,
     workspaceName: ctx.workspace.name,
+    region: route?.region,
   });
 
   console.log(

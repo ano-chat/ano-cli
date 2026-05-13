@@ -89,12 +89,25 @@ describe("ano auth complete (integration)", () => {
     const calls: FetchCall[] = [];
     mockFetch((call) => {
       calls.push(call);
-      if (call.url.endsWith("/api/cli-keys/workspaces")) {
+      // New cross-region list path (preferred). Staging mounts /cp/* on
+      // the Worker, so the global lister succeeds and the legacy
+      // /api/cli-keys/workspaces fallback never fires.
+      if (call.url.endsWith("/cp/workspaces")) {
         return new Response(
           JSON.stringify({
             workspaces: [
-              { id: "ws_a", name: "Acme", logo_url: null },
-              { id: "ws_b", name: "Beta", logo_url: null },
+              {
+                id: "ws_a",
+                name: "Acme",
+                region: "us",
+                archivedAt: null,
+              },
+              {
+                id: "ws_b",
+                name: "Beta",
+                region: "us",
+                archivedAt: null,
+              },
             ],
           }),
           { status: 200 },
@@ -127,15 +140,17 @@ describe("ano auth complete (integration)", () => {
 
     stdoutSpy.mockRestore();
 
-    // Auth-bearer header on both requests, scoped to staging endpoint.
+    // Two calls: the cross-region lister + the mint. Staging is NOT
+    // the apex so resolveRoute is skipped; the workspace.region from
+    // /cp/workspaces ('us') is the routing signal, but staging isn't
+    // an apex either way, so mint hits api-us.ano.dev.
     expect(calls.length).toBe(2);
-    expect(calls[0]?.url).toBe(
-      "https://api-staging.ano.dev/api/cli-keys/workspaces",
-    );
+    expect(calls[0]?.url).toBe("https://api-staging.ano.dev/cp/workspaces");
     expect(calls[0]?.init?.headers).toEqual(
       expect.objectContaining({ Authorization: "Bearer tok_alpha" }),
     );
-    expect(calls[1]?.url).toBe("https://api-staging.ano.dev/api/cli-keys");
+    // workspace.region === 'us' → mint at api-us, not the apex
+    expect(calls[1]?.url).toBe("https://api-us.ano.dev/api/cli-keys");
     expect(calls[1]?.init?.method).toBe("POST");
 
     // Profile saved with the picked workspace's name.
@@ -146,7 +161,9 @@ describe("ano auth complete (integration)", () => {
     expect(saved.profiles.default).toMatchObject({
       key: "ano_usr_minted_xyz",
       workspace_name: "Acme",
-      endpoint: "https://api-staging.ano.dev",
+      // workspace.region drives the saved endpoint (api-us).
+      endpoint: "https://api-us.ano.dev",
+      region: "us",
     });
 
     // Session file deleted after success.
@@ -228,7 +245,7 @@ describe("ano auth complete (integration)", () => {
     expect(loadSession()).not.toBeNull();
   });
 
-  it("resolves regional endpoint via /route when session uses apex (api.ano.dev)", async () => {
+  it("region from /cp/workspaces drives the regional endpoint (no /route hop needed)", async () => {
     saveSession({
       accessToken: "tok_alpha",
       endpoint: "https://api.ano.dev",
@@ -239,10 +256,12 @@ describe("ano auth complete (integration)", () => {
     const calls: FetchCall[] = [];
     mockFetch((call) => {
       calls.push(call);
-      if (call.url.endsWith("/api/cli-keys/workspaces")) {
+      if (call.url.endsWith("/cp/workspaces")) {
         return new Response(
           JSON.stringify({
-            workspaces: [{ id: "ws_a", name: "Acme", logo_url: null }],
+            workspaces: [
+              { id: "ws_a", name: "Acme", region: "eu", archivedAt: null },
+            ],
           }),
           { status: 200 },
         );
@@ -250,17 +269,6 @@ describe("ano auth complete (integration)", () => {
       if (call.url.endsWith("/api/cli-keys")) {
         return new Response(
           JSON.stringify({ api_key: "ano_usr_minted_xyz", key_id: "k1" }),
-          { status: 200 },
-        );
-      }
-      if (call.url.includes("/route")) {
-        return new Response(
-          JSON.stringify({
-            region: "eu",
-            apiUrl: "https://api-eu.ano.dev",
-            syncUrl: "https://sync-eu.ano.dev",
-            source: "kv",
-          }),
           { status: 200 },
         );
       }
@@ -277,26 +285,27 @@ describe("ano auth complete (integration)", () => {
       "ws_a",
     ]);
 
-    // The resolver passes URL objects to fetch; the cli-keys path uses strings.
-    // Normalize both before asserting.
-    const routeCall = calls
-      .map((c) => (typeof c.url === "string" ? c.url : String(c.url)))
-      .find(
-        (u) =>
-          u.startsWith("https://api.ano.dev/route") &&
-          u.includes("workspace_id=ws_a"),
-      );
-    expect(routeCall).toBeDefined();
+    // Mint hit api-eu (workspace.region drove the regional pin).
+    const mintCall = calls.find((c) => c.url.endsWith("/api/cli-keys"));
+    expect(mintCall?.url).toBe("https://api-eu.ano.dev/api/cli-keys");
+    // No /route call was needed — workspace.region was authoritative.
+    const routeCall = calls.find((c) => c.url.includes("/route"));
+    expect(routeCall).toBeUndefined();
+
     const saved = mockSaveGlobalCredentials.mock.calls[0]?.[0] as {
-      profiles: Record<string, { endpoint?: string; workspace_id?: string }>;
+      profiles: Record<
+        string,
+        { endpoint?: string; workspace_id?: string; region?: string }
+      >;
     };
     expect(saved.profiles.default).toMatchObject({
       endpoint: "https://api-eu.ano.dev",
       workspace_id: "ws_a",
+      region: "eu",
     });
   });
 
-  it("falls back to apex when /route fails (apex normalized to undefined)", async () => {
+  it("falls back to /api/cli-keys/workspaces + /route when /cp/workspaces 404s (older server)", async () => {
     saveSession({
       accessToken: "tok_alpha",
       endpoint: "https://api.ano.dev",
@@ -305,6 +314,11 @@ describe("ano auth complete (integration)", () => {
     });
 
     mockFetch((call) => {
+      // Simulate older server without /cp/* — legacy lister responds,
+      // global one 404s.
+      if (call.url.endsWith("/cp/workspaces")) {
+        return new Response("not found", { status: 404 });
+      }
       if (call.url.endsWith("/api/cli-keys/workspaces")) {
         return new Response(
           JSON.stringify({

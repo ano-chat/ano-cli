@@ -7,7 +7,31 @@ import {
   resolveRoute,
   shouldResolveRoute,
 } from "../../../core/region-resolver.js";
-import { listWorkspaces, mintCliKey, saveProfile } from "./auth-helpers.js";
+import {
+  listWorkspaces,
+  listWorkspacesGlobal,
+  mintCliKey,
+  regionalApiUrl,
+  saveProfile,
+  type Region,
+  type WorkspaceRow,
+} from "./auth-helpers.js";
+
+/**
+ * Same fallthrough chain as login.ts: try `/cp/workspaces` first
+ * (cross-region D1 list); on 404 fall back to the regional
+ * `/api/cli-keys/workspaces`. Without this, the orchestrator path
+ * (`ano auth complete --workspace-id <foreign>`) would 404 on the
+ * sanity-check before it ever tries to mint.
+ */
+async function listWorkspacesForComplete(opts: {
+  endpoint: string;
+  accessToken: string;
+}): Promise<WorkspaceRow[]> {
+  const global = await listWorkspacesGlobal(opts);
+  if (global !== null) return global;
+  return await listWorkspaces(opts);
+}
 
 /**
  * `ano auth complete --workspace-id <id>`
@@ -48,7 +72,10 @@ export function registerAuthComplete(parent: Command): void {
         // Sanity check: the picked workspace must actually be in the user's
         // memberships. Cheaper to re-list than to surface a confusing 403
         // from /api/cli-keys later.
-        const workspaces = await listWorkspaces({ endpoint, accessToken });
+        const workspaces = await listWorkspacesForComplete({
+          endpoint,
+          accessToken,
+        });
         const workspace = workspaces.find((w) => w.id === opts.workspaceId);
         if (!workspace) {
           throw new NotFoundError(
@@ -56,8 +83,25 @@ export function registerAuthComplete(parent: Command): void {
           );
         }
 
+        // Resolve region BEFORE minting — api_keys are FK'd to the
+        // regional `workspaces(id)`, so cross-region mints at the
+        // apex fail the FK check. See login.ts for the full rationale.
+        const resolvedRegion: Region | null =
+          workspace.region ??
+          (shouldResolveRoute(endpoint)
+            ? ((
+                await resolveRoute({
+                  endpoint,
+                  workspaceId: workspace.id,
+                })
+              )?.region ?? null)
+            : null);
+        const regionalEndpoint = resolvedRegion
+          ? regionalApiUrl(resolvedRegion)
+          : endpoint;
+
         const apiKey = await mintCliKey({
-          endpoint,
+          endpoint: regionalEndpoint,
           accessToken,
           workspaceId: workspace.id,
         });
@@ -67,19 +111,6 @@ export function registerAuthComplete(parent: Command): void {
         // didn't, the next `auth complete` would re-load the stale session
         // and re-mint, wasting an HTTP call and triggering the server's
         // auto-revoke against the key we just minted.
-        // Pin the profile to the workspace's home region when the
-        // session originated from the geo-router apex. Mirrors the
-        // `auth login` path so orchestrators get the same on-disk
-        // shape as interactive users.
-        const regionalEndpoint = shouldResolveRoute(endpoint)
-          ? ((
-              await resolveRoute({
-                endpoint,
-                workspaceId: workspace.id,
-              })
-            )?.apiUrl ?? endpoint)
-          : endpoint;
-
         try {
           saveProfile({
             profile: opts.profile,
@@ -87,6 +118,7 @@ export function registerAuthComplete(parent: Command): void {
             endpoint: regionalEndpoint,
             workspaceId: workspace.id,
             workspaceName: workspace.name,
+            region: resolvedRegion ?? undefined,
           });
         } finally {
           deleteSession();
