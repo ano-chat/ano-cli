@@ -171,34 +171,38 @@ export function registerAuthLogin(parent: Command): void {
           requestedId: opts.workspaceId,
         });
 
-        // Resolve the workspace's region BEFORE minting. api_keys
-        // rows are FK'd to `workspaces(id)` in regional Postgres, so
-        // a key for an EU workspace MUST be created via
-        // `api-eu.ano.dev/api/cli-keys` — minting at the apex (which
-        // CF DNS resolves to US today) would fail the FK check for
-        // an EU workspace.
+        // Resolve the workspace's region BEFORE minting — but ONLY swap
+        // to a regional host when we're signing in through the apex
+        // (`api.ano.dev`). The `regionalApiUrl()` table maps to
+        // production hosts (`api-us.ano.dev` / `api-eu.ano.dev`); a
+        // staging caller (`api-staging.ano.dev`) whose workspace lives
+        // in single-region staging would otherwise be redirected to
+        // prod hosts — staging WorkOS tokens fail at prod, and an
+        // api_key minted there would point at the wrong environment.
+        // Same `shouldResolveRoute()` gate as the prior /route-based
+        // pin; we just have a cheaper region signal from /cp/workspaces.
         //
-        // Priority order:
+        // Priority order (apex only):
         //   1. workspace.region from `/cp/workspaces` — authoritative,
         //      no extra round-trip
-        //   2. `/route?workspace_id=...` resolver — covers the
-        //      fallback case where the server is on a vintage that
-        //      didn't return region from /cp/workspaces (shouldn't
-        //      happen with a paired release, but defensive)
-        //   3. The configured endpoint as-is
-        const resolvedRegion: Region | null =
-          workspace.region ??
-          (shouldResolveRoute(endpoint)
-            ? ((
-                await resolveRoute({
-                  endpoint,
-                  workspaceId: workspace.id,
-                })
-              )?.region ?? null)
-            : null);
-        const regionalEndpoint = resolvedRegion
-          ? regionalApiUrl(resolvedRegion)
-          : endpoint;
+        //   2. `/route?workspace_id=...` resolver — fallback when the
+        //      legacy lister path was used and didn't return region
+        //
+        // Off-apex: region from /cp/workspaces is still saved as a
+        // tag on the profile, but the configured endpoint stays put.
+        const onApex = shouldResolveRoute(endpoint);
+        const resolvedRegion: Region | null = onApex
+          ? (workspace.region ??
+            (
+              await resolveRoute({
+                endpoint,
+                workspaceId: workspace.id,
+              })
+            )?.region ??
+            null)
+          : null;
+        const regionalEndpoint =
+          onApex && resolvedRegion ? regionalApiUrl(resolvedRegion) : endpoint;
 
         const apiKey = await mintCliKey({
           endpoint: regionalEndpoint,
@@ -212,7 +216,10 @@ export function registerAuthLogin(parent: Command): void {
           endpoint: regionalEndpoint,
           workspaceId: workspace.id,
           workspaceName: workspace.name,
-          region: resolvedRegion ?? undefined,
+          // Save region even off-apex (informational — answers "what
+          // region does this workspace live in?" without re-querying
+          // /cp/workspaces). Routing is still driven by `endpoint`.
+          region: resolvedRegion ?? workspace.region ?? undefined,
         });
 
         const displayName = oauth.user

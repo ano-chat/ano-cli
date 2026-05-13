@@ -85,20 +85,22 @@ export function registerAuthComplete(parent: Command): void {
 
         // Resolve region BEFORE minting — api_keys are FK'd to the
         // regional `workspaces(id)`, so cross-region mints at the
-        // apex fail the FK check. See login.ts for the full rationale.
-        const resolvedRegion: Region | null =
-          workspace.region ??
-          (shouldResolveRoute(endpoint)
-            ? ((
-                await resolveRoute({
-                  endpoint,
-                  workspaceId: workspace.id,
-                })
-              )?.region ?? null)
-            : null);
-        const regionalEndpoint = resolvedRegion
-          ? regionalApiUrl(resolvedRegion)
-          : endpoint;
+        // apex fail the FK check. See login.ts for the full rationale,
+        // including the apex-only guard: `regionalApiUrl()` maps to
+        // production hosts, so a staging session must stay on staging.
+        const onApex = shouldResolveRoute(endpoint);
+        const resolvedRegion: Region | null = onApex
+          ? (workspace.region ??
+            (
+              await resolveRoute({
+                endpoint,
+                workspaceId: workspace.id,
+              })
+            )?.region ??
+            null)
+          : null;
+        const regionalEndpoint =
+          onApex && resolvedRegion ? regionalApiUrl(resolvedRegion) : endpoint;
 
         const apiKey = await mintCliKey({
           endpoint: regionalEndpoint,
@@ -118,7 +120,9 @@ export function registerAuthComplete(parent: Command): void {
             endpoint: regionalEndpoint,
             workspaceId: workspace.id,
             workspaceName: workspace.name,
-            region: resolvedRegion ?? undefined,
+            // Save region even off-apex (informational). Routing is
+            // driven by `endpoint` either way.
+            region: resolvedRegion ?? workspace.region ?? undefined,
           });
         } finally {
           deleteSession();

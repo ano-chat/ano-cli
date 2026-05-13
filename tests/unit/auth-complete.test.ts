@@ -141,16 +141,16 @@ describe("ano auth complete (integration)", () => {
     stdoutSpy.mockRestore();
 
     // Two calls: the cross-region lister + the mint. Staging is NOT
-    // the apex so resolveRoute is skipped; the workspace.region from
-    // /cp/workspaces ('us') is the routing signal, but staging isn't
-    // an apex either way, so mint hits api-us.ano.dev.
+    // the apex, so `regionalApiUrl()` (which maps to PROD hosts only)
+    // must NOT fire — otherwise we'd redirect staging traffic to
+    // production. `region` is saved as a tag on the profile, but the
+    // configured staging endpoint stays put for routing.
     expect(calls.length).toBe(2);
     expect(calls[0]?.url).toBe("https://api-staging.ano.dev/cp/workspaces");
     expect(calls[0]?.init?.headers).toEqual(
       expect.objectContaining({ Authorization: "Bearer tok_alpha" }),
     );
-    // workspace.region === 'us' → mint at api-us, not the apex
-    expect(calls[1]?.url).toBe("https://api-us.ano.dev/api/cli-keys");
+    expect(calls[1]?.url).toBe("https://api-staging.ano.dev/api/cli-keys");
     expect(calls[1]?.init?.method).toBe("POST");
 
     // Profile saved with the picked workspace's name.
@@ -161,8 +161,8 @@ describe("ano auth complete (integration)", () => {
     expect(saved.profiles.default).toMatchObject({
       key: "ano_usr_minted_xyz",
       workspace_name: "Acme",
-      // workspace.region drives the saved endpoint (api-us).
-      endpoint: "https://api-us.ano.dev",
+      // Endpoint stays on staging; region is informational only.
+      endpoint: "https://api-staging.ano.dev",
       region: "us",
     });
 
@@ -352,6 +352,70 @@ describe("ano auth complete (integration)", () => {
     };
     // saveProfile normalizes api.ano.dev → undefined.
     expect(saved.profiles.default?.endpoint).toBeUndefined();
+  });
+
+  it("never rewrites staging/custom endpoints to prod regional hosts (env-leak guard)", async () => {
+    // `regionalApiUrl()` maps to PRODUCTION hosts (api-us / api-eu).
+    // A staging session whose workspace has `region: "us"` MUST keep
+    // its mint on staging — otherwise we'd send the staging WorkOS
+    // token to prod and save a key pointing at the wrong environment.
+    // This is the apex-only guard regression test.
+    saveSession({
+      accessToken: "tok_stg",
+      endpoint: "https://api-staging.ano.dev",
+      clientId: "client_test",
+      createdAt: Date.now(),
+    });
+
+    const calls: FetchCall[] = [];
+    mockFetch((call) => {
+      calls.push(call);
+      if (call.url.endsWith("/cp/workspaces")) {
+        return new Response(
+          JSON.stringify({
+            workspaces: [
+              { id: "ws_a", name: "Acme", region: "us", archivedAt: null },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (call.url.endsWith("/api/cli-keys")) {
+        return new Response(
+          JSON.stringify({ api_key: "ano_usr_stg", key_id: "k1" }),
+          { status: 200 },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    });
+
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await makeProgram().parseAsync([
+      "node",
+      "ano",
+      "complete",
+      "--workspace-id",
+      "ws_a",
+    ]);
+
+    // Critical: no call landed on a production regional host.
+    for (const c of calls) {
+      expect(c.url).not.toMatch(/api-us\.ano\.dev|api-eu\.ano\.dev/);
+    }
+    // Mint went to staging.
+    expect(
+      calls.some((c) => c.url === "https://api-staging.ano.dev/api/cli-keys"),
+    ).toBe(true);
+
+    const saved = mockSaveGlobalCredentials.mock.calls[0]?.[0] as {
+      profiles: Record<string, { endpoint?: string; region?: string }>;
+    };
+    expect(saved.profiles.default?.endpoint).toBe(
+      "https://api-staging.ano.dev",
+    );
+    // Region still saved (informational tag).
+    expect(saved.profiles.default?.region).toBe("us");
   });
 
   it("exits with AUTH (3) when the cached session has expired", async () => {
