@@ -4,6 +4,53 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.17.0] — 2026-05-13
+
+### Added — group DMs (Slack-style MPIM)
+
+`ano dm send` accepts multiple recipients now. Repeat the flag,
+pass comma-separated, or pass variadic — they all collapse to one
+deduped recipient list. ≥2 distinct recipients → group DM (Slack
+calls these MPIMs); 1 → existing 1:1 DM (unchanged).
+
+```
+ano dm send "perf-test friday afternoon" \
+  --to Alice --to Bob --to Carol --agent
+
+ano dm send "..." --to "Alice,Bob,Carol" --agent       # comma form
+ano dm send "..." --to Alice Bob Carol --agent         # variadic form
+
+ano dm send "..." --to Alice --user-id u-bob --agent   # mixed name + id
+```
+
+Idempotent on the unordered member set: repeating the same `--to`
+combo always lands in the same channel forever (Slack convention —
+group-DM membership is immutable; to change participants, start a
+new conversation).
+
+`--email` stays single-recipient only — group DM by email isn't
+supported yet (no compelling use case; the typed-id / typed-name
+paths cover the agent flow).
+
+Pairs with the existing `mutators.actions.getOrCreateGroupDM` Zero
+mutator + the desktop `NewDMDialog` multi-select that's been there
+all along — closes the gap on the agent + CLI side so anyone (not
+just human Electron users) can start group DMs.
+
+### Internal
+
+- `ApiClient.sendDm` type widened to accept `recipient_names[]` /
+  `user_ids[]`; return type now `SendDmResult | SendGroupDmResult`.
+- Server-side `sendGroupDm` op + `/mcp/send_dm` group dispatch ship
+  in [project-ano#NN](https://github.com/LeoNilsson/project-ano).
+
+### Tests
+
+`tests/unit/dm-send.test.ts` (8 cases) covers the recipient
+normaliser (variadic, comma-separated, repeated, deduped, mixed
+flag types) + the 1:1-vs-group dispatch decision + the no-recipient
+and `--email`+group rejection paths. Total CLI suite: 204 passing.
+
 ## [2.16.2] — 2026-05-13
 
 ### Fixed — daemon read wrong credentials.json under HOME redirect
