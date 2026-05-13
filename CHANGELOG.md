@@ -4,6 +4,51 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.16.0] — 2026-05-13
+
+### Added — auto-local in monorepo
+
+When the CLI is invoked from a directory under a checkout where
+`npm run dev:local` is currently running (signal:
+`.ano/dev/postgres/postmaster.pid` exists in cwd or any ancestor),
+AND a `local` profile exists in `~/.config/ano/credentials.json`,
+the CLI now uses the `local` profile automatically instead of
+silently sending to staging.
+
+A one-line hint goes to stderr so the choice is never invisible:
+
+```
+→ profile: local (auto — dev:local stack detected; pass --profile default to override)
+```
+
+### Why
+
+Caught when an agent session ran `ano messages send "hello, friends!"
+--channel-name design` while the user was actively testing locally.
+The message went to **staging** (the global default) instead of the
+local stack the user could see in their Electron window. Real footgun.
+
+### Doesn't fire when
+
+- `--profile <name>` / `ANO_PROFILE=<name>` was set explicitly
+- `--key` / `ANO_API_KEY` set explicitly
+- A project-level `.ano/config.json` provides a key
+- `ANO_NO_AUTO_LOCAL=1`
+- CWD is outside any directory with the `dev:local` Postgres marker
+- No `local` profile exists
+
+### Quiet variant
+
+`ANO_QUIET_PROFILE_HINT=1` suppresses the stderr hint while still
+auto-picking. Useful for scripts that want clean stdout/stderr but
+trust the auto-pick.
+
+### Tests
+
+6 new in `auth.test.ts` covering the matrix: cwd-under-running-stack,
+cwd-outside, no-local-profile-exists, ANO_NO_AUTO_LOCAL, explicit
+`--profile default` overrides, ANO_QUIET_PROFILE_HINT.
+
 ## [2.15.0] — 2026-05-13
 
 ### Added — global `--profile` flag
