@@ -42,6 +42,12 @@ describe("shouldBypass", () => {
     expect(shouldBypass(["daemon", "status"])).toBe(true);
   });
 
+  it("bypasses `dev` so smoke can read profile/env + probe daemon state", () => {
+    delete process.env.ANO_NO_DAEMON;
+    expect(shouldBypass(["dev", "smoke"])).toBe(true);
+    expect(shouldBypass(["dev", "smoke", "--agent"])).toBe(true);
+  });
+
   it("bypasses interactive auth flows", () => {
     delete process.env.ANO_NO_DAEMON;
     expect(shouldBypass(["auth", "login"])).toBe(true);

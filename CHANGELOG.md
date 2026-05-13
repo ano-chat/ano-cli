@@ -4,6 +4,39 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.14.0] — 2026-05-13
+
+### Added — `ano dev smoke`
+
+One-command sanity check that runs the canonical CLI surface against
+the active profile and reports per-call timings + a one-line summary.
+Pairs with the monorepo's `dev:local` auto-provisioning to give devs a
+sub-second answer to "did my change break the shell↔CLI flow?"
+
+```
+$ ano --profile local dev smoke
+✓ context           48ms Local Dev · Ruben Flam
+✓ channels list     32ms 3 channels
+✓ users list        29ms 1 user
+✓ tables list       30ms 0 tables
+✓ messages send     45ms → m_abc (#test-history)
+all green · 5/5 in 184ms · daemon: warm (pid 1234, v2.14.0)
+endpoint: http://127.0.0.1:3001
+```
+
+Flags:
+
+- `--no-write` — skip the message-send step (read-only smoke against
+  rate-limited environments)
+- `-c, --channel-name <name>` — override the default channel pick
+- `--agent` / `--json` — emit a JSON envelope instead of the table
+
+Channel picking order: `test-history` → `test-*` → `random` → first
+messageable. Keeps smoke writes out of business-relevant channels.
+
+Bypassed by the daemon (always runs in the calling process) so the
+summary can probe daemon state and report it accurately.
+
 ## [2.13.3] — 2026-05-13
 
 ### Fixed (review pass)
