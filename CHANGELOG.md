@@ -4,6 +4,29 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.13.1] — 2026-05-13
+
+### Fixed
+
+- **Daemon dispatch deadlock under sustained load.** Pre-fix, if a
+  dispatched command hung indefinitely (server rate-limit retry
+  loops, awaited fetch that never resolved, etc.) the serial queue
+  blocked forever — every queued request behind it timed out. Now
+  each dispatch is wrapped in a 60 s timeout; on timeout the daemon
+  replies with `code: "internal"` + a "restarting" message and
+  `process.exit(0)`s. The next call falls through to direct execution
+  via the existing client fallback and opportunistically respawns a
+  fresh daemon. Bulletproof for the symptom; deeper audit of which
+  commands leak module-scope state is a follow-up.
+
+### Internal
+
+- `startDaemon` now accepts `dispatchTimeoutMs` (test override) plus
+  two underscore-prefixed test hooks: `_dispatchOverride` (replace
+  the dispatch function) and `_onShutdown` (replace `process.exit`).
+- New `tests/unit/daemon-timeout.test.ts` (1 test) pins the
+  reply-then-shutdown behaviour using a hanging dispatch override.
+
 ## [2.13.0] — 2026-05-12
 
 ### Added

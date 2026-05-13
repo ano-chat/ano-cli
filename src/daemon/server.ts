@@ -48,6 +48,17 @@ declare const __VERSION__: string;
 const DAEMON_CLI_VERSION =
   typeof __VERSION__ !== "undefined" ? __VERSION__ : "0.0.0-dev";
 
+/**
+ * Per-dispatch timeout. If a single command exceeds this we reply to the
+ * client with an error, then `process.exit(1)` so the next call gets a
+ * fresh daemon. Pre-2.13.1 the dispatch chain could deadlock when one
+ * dispatch hung (server rate-limit retries, an awaited fetch that never
+ * resolved, etc.) — every queued request behind it then blocked too.
+ * Suicide + respawn is heavy-handed but bulletproof: state can't bleed
+ * across daemons.
+ */
+const DISPATCH_TIMEOUT_MS = 60_000;
+
 class ExitSentinel extends Error {
   constructor(public readonly code: number) {
     super("daemon-exit-sentinel");
@@ -209,11 +220,22 @@ function attachConnection(socket: Socket, ctx: ServerContext): void {
           setTimeout(() => ctx.shutdown(), 50);
           continue;
         }
-        // Queue; serial dispatch.
+        // Queue; serial dispatch with per-dispatch timeout.
         ctx.queue = ctx.queue.then(async () => {
           const t0 = performance.now();
+          let timedOut = false;
+          let timer: NodeJS.Timeout | null = null;
           try {
-            const r = await dispatch(req);
+            const r = await Promise.race([
+              ctx.dispatchFn(req),
+              new Promise<never>((_, reject) => {
+                timer = setTimeout(() => {
+                  timedOut = true;
+                  reject(new Error("dispatch_timeout"));
+                }, ctx.dispatchTimeoutMs);
+              }),
+            ]);
+            if (timer) clearTimeout(timer);
             reply({
               id: req.id,
               ok: true,
@@ -223,14 +245,25 @@ function attachConnection(socket: Socket, ctx: ServerContext): void {
               dispatchMs: Math.round(performance.now() - t0),
             });
           } catch (err) {
+            if (timer) clearTimeout(timer);
             const message =
               err instanceof Error ? (err.stack ?? err.message) : String(err);
             reply({
               id: req.id,
               ok: false,
-              error: message,
+              error: timedOut
+                ? `Dispatch exceeded ${ctx.dispatchTimeoutMs}ms; daemon restarting.`
+                : message,
               code: "internal",
             });
+            if (timedOut) {
+              // Force respawn — the in-flight dispatch is orphaned; we
+              // can't safely cancel it, but exiting the process flushes
+              // any leaked timers/connections it may be holding. The
+              // client falls back to direct execution and opportunistic
+              // spawn restores a clean daemon.
+              setTimeout(() => ctx.shutdown(), 50);
+            }
           }
         });
         continue;
@@ -253,6 +286,10 @@ interface ServerContext {
   startedAt: number;
   /** Serial dispatch chain — every exec extends it. */
   queue: Promise<void>;
+  /** Resolved per-dispatch timeout, ms. Captured at startDaemon() time. */
+  dispatchTimeoutMs: number;
+  /** The dispatch implementation. Production = `dispatch`; tests override. */
+  dispatchFn: (req: ExecRequest) => Promise<DispatchResult>;
   bumpIdle: () => void;
   shutdown: () => void;
 }
@@ -262,6 +299,22 @@ export interface DaemonStartOptions {
   pidPath?: string;
   /** Idle window in ms. 0 disables idle exit (useful for tests). */
   idleMs?: number;
+  /**
+   * Per-dispatch timeout in ms. Tests override this to a small value to
+   * exercise the timeout + suicide-respawn path quickly.
+   */
+  dispatchTimeoutMs?: number;
+  /**
+   * INTERNAL — replace the dispatch function. Only used by tests to
+   * simulate a hung command without touching the real command tree. Do
+   * not use from production code.
+   */
+  _dispatchOverride?: (req: ExecRequest) => Promise<DispatchResult>;
+  /**
+   * INTERNAL — replace `process.exit(0)` at shutdown so tests can
+   * trigger the suicide-respawn path without killing the vitest worker.
+   */
+  _onShutdown?: () => void;
 }
 
 /**
@@ -292,6 +345,8 @@ export function startDaemon(opts: DaemonStartOptions = {}): {
     server: createServer((s) => attachConnection(s, ctx)),
     startedAt: Date.now(),
     queue: Promise.resolve(),
+    dispatchTimeoutMs: opts.dispatchTimeoutMs ?? DISPATCH_TIMEOUT_MS,
+    dispatchFn: opts._dispatchOverride ?? dispatch,
     bumpIdle: () => {},
     shutdown: () => {},
   };
@@ -320,7 +375,8 @@ export function startDaemon(opts: DaemonStartOptions = {}): {
     } catch {
       // ignore
     }
-    process.exit(0);
+    if (opts._onShutdown) opts._onShutdown();
+    else process.exit(0);
   };
 
   ctx.server.listen(socketPath, () => {
