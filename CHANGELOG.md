@@ -4,6 +4,33 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.18.0] — 2026-05-13
+
+### Added — file attachments via `--file`
+
+`ano messages send` and `ano dm send` accept a new `--file` flag.
+Each invocation uploads the file to R2 via `POST /mcp/upload` and
+posts a message with the attachment row in one server-side
+transaction. Empty content + `--file` is allowed (image-only sends).
+
+```
+ano messages send "see screenshot" -n engineering --file ./bug.png --agent
+ano messages send "logs" -c <id> --file ./out.txt --file ./err.txt --agent
+ano messages send "" -n design --file ./shot.png --agent     # image-only
+ano dm send "fyi" --to Alice --file ./report.pdf --agent
+ano dm send "shared report" --to Alice --to Bob --file ./out.pdf --agent
+```
+
+Path resolution is dedupe-aware (`--file a.png --file a.png` uploads once)
+and supports comma-separated batches (`--file a.png,b.png`). Per-file
+cap is 25 MB (server-enforced); per-invocation total cap is 125 MB
+(pre-flight check, fails fast before any upload). Supported types
+mirror the existing `/api/upload` allowlist (images, video, audio,
+PDF, office docs, text, JSON, zip, tar, gzip).
+
+The send response now includes `attachment_ids: string[]` whenever
+`--file` was used.
+
 ## [2.17.0] — 2026-05-13
 
 ### Added — group DMs (Slack-style MPIM)

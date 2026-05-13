@@ -8,6 +8,7 @@ import {
   type SendGroupDmResult,
 } from "../../../core/api-client.js";
 import { output } from "../../../core/output.js";
+import { resolveFiles, uploadAttachments } from "../../file-attachments.js";
 
 /**
  * Normalise repeated `--to` values + comma-separated forms into a clean
@@ -41,6 +42,10 @@ export function registerSendDm(parent: Command): void {
       "--user-id <ids...>",
       "Recipient user ID(s). Repeat or comma-separated; ≥2 = group DM",
     )
+    .option(
+      "--file <paths...>",
+      'Local file path(s) to attach. Repeat the flag or pass comma-separated. Empty content is OK when --file is used (e.g. send a screenshot only with content "").',
+    )
     .action(
       withErrorHandler(async (content, opts, cmd) => {
         const globals = cmd.optsWithGlobals() as GlobalOptions;
@@ -65,12 +70,24 @@ export function registerSendDm(parent: Command): void {
           );
         }
 
+        const filePaths = resolveFiles(opts.file);
+        if (content.trim().length === 0 && filePaths.length === 0) {
+          throw new Error(
+            "Empty content requires at least one --file attachment.",
+          );
+        }
+        const attachments =
+          filePaths.length > 0
+            ? await uploadAttachments(client, filePaths)
+            : undefined;
+
         const result = isGroup
           ? await client.sendDm({
               recipient_names: names,
               user_ids: ids,
               content,
               workspace_id: globals.workspace,
+              attachments,
             })
           : await client.sendDm({
               recipient_name: names[0],
@@ -78,6 +95,7 @@ export function registerSendDm(parent: Command): void {
               user_id: ids[0],
               content,
               workspace_id: globals.workspace,
+              attachments,
             });
 
         const title = isGroup
