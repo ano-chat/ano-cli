@@ -188,6 +188,81 @@ describe("ano auth login --print-workspaces (integration)", () => {
     expect(loadSession()).not.toBeNull();
   });
 
+  it("prefers /cp/workspaces (cross-region) over legacy /api/cli-keys/workspaces", async () => {
+    mockRunOAuthLogin.mockResolvedValue({ accessToken: "tok_cp" });
+    let legacyHit = false;
+    mockFetch(({ url }) => {
+      if (url.endsWith("/cp/workspaces")) {
+        return new Response(
+          JSON.stringify({
+            workspaces: [
+              // US-resident user has both a US workspace AND an
+              // EU-pinned workspace. Only the global /cp/workspaces
+              // lister returns both; the legacy path would only show
+              // the in-region one.
+              {
+                id: "ws_us",
+                name: "US Team",
+                region: "us",
+                archivedAt: null,
+              },
+              {
+                id: "ws_eu",
+                name: "EU Team",
+                region: "eu",
+                archivedAt: null,
+              },
+              // Archived workspace — filtered out client-side so
+              // operators don't see retired workspaces in the picker.
+              {
+                id: "ws_old",
+                name: "Old",
+                region: "us",
+                archivedAt: 1700000000000,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/api/cli-keys/workspaces")) {
+        legacyHit = true;
+        return new Response(
+          JSON.stringify({ workspaces: [{ id: "ws_us", name: "US Team" }] }),
+          { status: 200 },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    });
+
+    const stdoutChunks: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(
+      (chunk: string | Uint8Array) => {
+        stdoutChunks.push(typeof chunk === "string" ? chunk : chunk.toString());
+        return true;
+      },
+    );
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await makeProgram().parseAsync([
+      "node",
+      "ano",
+      "--endpoint",
+      "https://api-staging.ano.dev",
+      "login",
+      "--print-workspaces",
+    ]);
+
+    expect(legacyHit).toBe(false);
+    const parsed = JSON.parse(stdoutChunks[0]!.trim());
+    // Both regions present + region surfaced. Archived filtered.
+    expect(parsed.workspaces).toHaveLength(2);
+    expect(parsed.workspaces.map((w: { region: string }) => w.region)).toEqual([
+      "us",
+      "eu",
+    ]);
+  });
+
   it("rejects --print-workspaces + --key with USAGE (1)", async () => {
     vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.spyOn(console, "log").mockImplementation(() => {});

@@ -30,6 +30,14 @@ export interface Credentials {
        * single-workspace users.
        */
       workspace_id?: string;
+      /**
+       * Workspace's home region ("us" | "eu"). Persisted at login from
+       * `/cp/workspaces` so subsequent commands know which regional
+       * API the workspace lives in without re-querying. Informational
+       * today (routing is driven by `endpoint`); useful for future
+       * `ano workspaces list --region us` filters.
+       */
+      region?: "us" | "eu";
       created_at: string;
     }
   >;

@@ -4,6 +4,46 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.19.0] — 2026-05-13
+
+### Added
+
+- **Cross-region workspace listing (decision 8, multi-region master plan).**
+  `ano auth login` and `ano auth complete` now hit the D1 control plane's
+  globally-consistent `GET /cp/workspaces` to enumerate workspaces. Pre-
+  fix, a US-resident caller signing in through `api.ano.dev` would see
+  only US workspaces in the picker — EU memberships were invisible
+  because the legacy `/api/cli-keys/workspaces` endpoint queries the
+  in-region Postgres. The new path returns every workspace regardless
+  of region.
+- The `--print-workspaces` JSON output now includes a `region` field
+  per workspace so orchestrators that pick a workspace can pass it to
+  the API key minter on the right regional endpoint without an extra
+  `/route` round-trip.
+- Profile records (`~/.config/ano/credentials.json`) gain an optional
+  `region` field for "what region is this profile pinned to?" queries.
+  Informational today; routing is still driven by the persisted
+  `endpoint`.
+
+### Changed
+
+- **API key minting routes by workspace region BEFORE the mint, not
+  after.** `api_keys` rows are foreign-keyed to `workspaces(id)` in
+  regional Postgres, so an EU workspace's key MUST be minted at
+  `api-eu.ano.dev/api/cli-keys`. Pre-fix, the mint hit whatever the
+  configured endpoint resolved to (US, for the apex). For EU
+  workspaces this would have failed the FK check.
+- **Apex-only guard** on the regional swap: `regionalApiUrl()` maps to
+  production hosts only, so a staging session whose workspace has
+  `region: "us"` MUST keep its mint on staging — otherwise we'd send
+  the staging WorkOS token to prod and save an api_key pointing at the
+  wrong environment.
+- Graceful fallback: when the server doesn't yet expose `/cp/*`
+  (older/self-hosted deployments), the CLI falls back to the legacy
+  `/api/cli-keys/workspaces` + `/route` resolver chain. Same on-disk
+  shape, just without cross-region visibility — which is correct for
+  single-region servers.
+
 ## [2.18.1] — 2026-05-13
 
 ### Fixed — daemon health pre-flight (no more 30s hangs)
@@ -381,6 +421,7 @@ The daemon path is skipped automatically for:
 - `ano messages send` no longer requires `--channel`. Either
   `--channel <id>` or `--channel-name <name>` is accepted; the CLI
   errors clearly when neither is provided.
+  > > > > > > > origin/main
 
 ## [2.11.1] — 2026-05-11
 
