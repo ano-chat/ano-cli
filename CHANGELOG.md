@@ -4,6 +4,24 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.13.3] — 2026-05-13
+
+### Fixed (review pass)
+
+- `daemon/server.ts` — dispatch error reply now sends `err.message` only
+  (previously sent `err.stack`, leaking the daemon's absolute file
+  paths and noisy frames into the client's stderr).
+
+### Tests
+
+- `daemon-timeout.test.ts` — widened the elapsed-time tolerance from
+  600 ms to 2000 ms. The original bound was tight against the test
+  client's connect-retry loop (~500 ms worst case); the meaningful
+  assertion is "not 30 s", not "exactly 100 ms".
+- `retry.test.ts` — new test verifies the new default `maxRetries=2`
+  also caps 502 retries (3 total attempts then throw). Previously the
+  502 test passed `maxRetries: 5` and never exercised the new default.
+
 ## [2.13.2] — 2026-05-13
 
 ### Changed — spotless CLI failure mode

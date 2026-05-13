@@ -127,8 +127,9 @@ describe("per-dispatch timeout (v2.13.1)", () => {
     if (resp.ok) return;
     expect(resp.code).toBe("internal");
     expect(resp.error).toMatch(/restarting/);
-    // Allow up to 500 ms tolerance for CI variance + reply-write delay.
-    expect(elapsed).toBeLessThan(600);
+    // 100 ms timeout + ≤500 ms connect-retry loop + reply-write delay.
+    // Generous bound for slow CI; the meaningful assertion is "not 30 s".
+    expect(elapsed).toBeLessThan(2000);
 
     // The shutdown callback fires on a 50 ms post-reply delay. Wait it out.
     await new Promise((r) => setTimeout(r, 200));
