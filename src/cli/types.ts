@@ -13,6 +13,12 @@ export interface GlobalOptions {
   key?: string;
   endpoint: string;
   workspace?: string;
+  /**
+   * Read auth from this named profile in `~/.config/ano/credentials.json`
+   * instead of the implicit `default`. Use to switch between staging
+   * (default) and `local` (auto-provisioned by `npm run dev:local`).
+   */
+  profile?: string;
   json?: boolean;
   md?: boolean;
   quiet?: boolean;

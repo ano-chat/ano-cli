@@ -20,6 +20,8 @@ import { registerNew } from "./commands/new/index.js";
 import { registerEdit } from "./commands/edit/index.js";
 import { registerIntegrations } from "./commands/integrations/index.js";
 import { registerSession } from "./commands/session/index.js";
+import { registerDaemon } from "./commands/daemon/index.js";
+import { registerDev } from "./commands/dev/index.js";
 
 export function registerAllCommands(program: Command): void {
   registerAuth(program);
@@ -43,4 +45,6 @@ export function registerAllCommands(program: Command): void {
   registerDoctor(program);
   registerShow(program);
   registerCommands(program);
+  registerDaemon(program);
+  registerDev(program);
 }

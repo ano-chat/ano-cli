@@ -283,7 +283,14 @@ export async function startBridge(options: BridgeOptions) {
           headers: reqHeaders,
           body: JSON.stringify(chatBody),
         },
-        { maxRetries: 10, baseDelayMs: 1000, maxDelayMs: 30_000 },
+        // Long-running connector: opt back into 429 backoff + larger
+        // retry budget. CLI defaults are tuned for one-shot calls.
+        {
+          maxRetries: 10,
+          baseDelayMs: 1000,
+          maxDelayMs: 30_000,
+          retryRateLimit: true,
+        },
       );
     } catch (err) {
       if (err instanceof PermanentError) {

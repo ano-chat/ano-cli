@@ -4,7 +4,7 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
-## [2.12.0] — 2026-05-13
+## [2.19.0] — 2026-05-13
 
 ### Added
 
@@ -33,11 +33,395 @@ project adheres to [Semantic Versioning](https://semver.org/).
   `api-eu.ano.dev/api/cli-keys`. Pre-fix, the mint hit whatever the
   configured endpoint resolved to (US, for the apex). For EU
   workspaces this would have failed the FK check.
+- **Apex-only guard** on the regional swap: `regionalApiUrl()` maps to
+  production hosts only, so a staging session whose workspace has
+  `region: "us"` MUST keep its mint on staging — otherwise we'd send
+  the staging WorkOS token to prod and save an api_key pointing at the
+  wrong environment.
 - Graceful fallback: when the server doesn't yet expose `/cp/*`
   (older/self-hosted deployments), the CLI falls back to the legacy
   `/api/cli-keys/workspaces` + `/route` resolver chain. Same on-disk
   shape, just without cross-region visibility — which is correct for
   single-region servers.
+
+## [2.18.1] — 2026-05-13
+
+### Fixed — daemon health pre-flight (no more 30s hangs)
+
+The CLI now sends a fast `ping` (≤1s deadline) to the daemon before
+every `exec` dispatch. If the daemon socket exists but the process
+can't reply — wedged dispatch loop, OOM thrash, partial protocol
+upgrade, OS sleep recovery — the client SIGKILLs the stale process
+via the PID file, unlinks the socket, fires off a fresh daemon, and
+falls back to direct execution for the current call. Previous
+behavior: wait the full 30s exec timeout for a reply that never
+came.
+
+Also tightened the exec response deadline from 30s → 10s. The
+daemon's own per-dispatch timeout is still 60s; the client now
+gives up sooner because the pre-flight ping has already weeded out
+unresponsive daemons.
+
+Catches the same drift case where an upgraded CLI binary was still
+talking to a daemon spawned by the prior version — now the version
+mismatch surfaces in the ping reply (∼50 ms) rather than waiting
+on the next `exec`.
+
+## [2.18.0] — 2026-05-13
+
+### Added — file attachments via `--file`
+
+`ano messages send` and `ano dm send` accept a new `--file` flag.
+Each invocation uploads the file to R2 via `POST /mcp/upload` and
+posts a message with the attachment row in one server-side
+transaction. Empty content + `--file` is allowed (image-only sends).
+
+```
+ano messages send "see screenshot" -n engineering --file ./bug.png --agent
+ano messages send "logs" -c <id> --file ./out.txt --file ./err.txt --agent
+ano messages send "" -n design --file ./shot.png --agent     # image-only
+ano dm send "fyi" --to Alice --file ./report.pdf --agent
+ano dm send "shared report" --to Alice --to Bob --file ./out.pdf --agent
+```
+
+Path resolution is dedupe-aware (`--file a.png --file a.png` uploads once)
+and supports comma-separated batches (`--file a.png,b.png`). Per-file
+cap is 25 MB (server-enforced); per-invocation total cap is 125 MB
+(pre-flight check, fails fast before any upload). Supported types
+mirror the existing `/api/upload` allowlist (images, video, audio,
+PDF, office docs, text, JSON, zip, tar, gzip).
+
+The send response now includes `attachment_ids: string[]` whenever
+`--file` was used.
+
+## [2.17.0] — 2026-05-13
+
+### Added — group DMs (Slack-style MPIM)
+
+`ano dm send` accepts multiple recipients now. Repeat the flag,
+pass comma-separated, or pass variadic — they all collapse to one
+deduped recipient list. ≥2 distinct recipients → group DM (Slack
+calls these MPIMs); 1 → existing 1:1 DM (unchanged).
+
+```
+ano dm send "perf-test friday afternoon" \
+  --to Alice --to Bob --to Carol --agent
+
+ano dm send "..." --to "Alice,Bob,Carol" --agent       # comma form
+ano dm send "..." --to Alice Bob Carol --agent         # variadic form
+
+ano dm send "..." --to Alice --user-id u-bob --agent   # mixed name + id
+```
+
+Idempotent on the unordered member set: repeating the same `--to`
+combo always lands in the same channel forever (Slack convention —
+group-DM membership is immutable; to change participants, start a
+new conversation).
+
+`--email` stays single-recipient only — group DM by email isn't
+supported yet (no compelling use case; the typed-id / typed-name
+paths cover the agent flow).
+
+Pairs with the existing `mutators.actions.getOrCreateGroupDM` Zero
+mutator + the desktop `NewDMDialog` multi-select that's been there
+all along — closes the gap on the agent + CLI side so anyone (not
+just human Electron users) can start group DMs.
+
+### Internal
+
+- `ApiClient.sendDm` type widened to accept `recipient_names[]` /
+  `user_ids[]`; return type now `SendDmResult | SendGroupDmResult`.
+- Server-side `sendGroupDm` op + `/mcp/send_dm` group dispatch ship
+  in [project-ano#NN](https://github.com/LeoNilsson/project-ano).
+
+### Tests
+
+`tests/unit/dm-send.test.ts` (8 cases) covers the recipient
+normaliser (variadic, comma-separated, repeated, deduped, mixed
+flag types) + the 1:1-vs-group dispatch decision + the no-recipient
+and `--email`+group rejection paths. Total CLI suite: 204 passing.
+
+## [2.16.2] — 2026-05-13
+
+### Fixed — daemon read wrong credentials.json under HOME redirect
+
+`src/core/config.ts` cached `CONFIG_DIR = join(homedir(), ".config", "ano")`
+at module load time. The daemon imports `config.ts` once at startup,
+freezing the path against the daemon's startup HOME.
+
+When a request came from the Ano in-app PTY shell (HOME redirected to
+`~/.ano/dev/shell-home`), the daemon's `dispatch()` correctly replaces
+`process.env` with the caller's env — but `loadGlobalCredentials()`
+still used the cached `CONFIG_DIR` and read the wrong file. Result:
+`ano messages send` from the in-app shell hit STAGING (the daemon's
+own `default` profile in main creds) instead of the LOCAL endpoint
+the in-app shell expected (its `default` profile in shell-home creds).
+
+Smoke didn't catch this because `dev` is in the daemon-bypass list —
+it ran in the calling process where `os.homedir()` returns the
+correct redirected HOME.
+
+Fix: resolve `configDir()` per call via `homedir()` instead of
+caching at module load. Three regression tests in
+`tests/unit/config.test.ts` pin the per-call resolution + the
+HOME-switch behaviour.
+
+## [2.16.1] — 2026-05-13
+
+### Fixed (review pass)
+
+- `ANO_NO_AUTO_LOCAL` and `ANO_QUIET_PROFILE_HINT` now accept both
+  `"1"` and `"true"` (case-insensitive) — matches the convention
+  every other env-var check in the CLI uses (e.g. `ANO_NO_DAEMON`).
+  Previously only `"1"` worked; `=true` was silently ignored. Helper
+  extracted as `isEnvFlagSet()` for consistency across new env vars.
+- 2 new tests pin both the `=true` and `=TRUE` paths.
+
+## [2.16.0] — 2026-05-13
+
+### Added — auto-local in monorepo
+
+When the CLI is invoked from a directory under a checkout where
+`npm run dev:local` is currently running (signal:
+`.ano/dev/postgres/postmaster.pid` exists in cwd or any ancestor),
+AND a `local` profile exists in `~/.config/ano/credentials.json`,
+the CLI now uses the `local` profile automatically instead of
+silently sending to staging.
+
+A one-line hint goes to stderr so the choice is never invisible:
+
+```
+→ profile: local (auto — dev:local stack detected; pass --profile default to override)
+```
+
+### Why
+
+Caught when an agent session ran `ano messages send "hello, friends!"
+--channel-name design` while the user was actively testing locally.
+The message went to **staging** (the global default) instead of the
+local stack the user could see in their Electron window. Real footgun.
+
+### Doesn't fire when
+
+- `--profile <name>` / `ANO_PROFILE=<name>` was set explicitly
+- `--key` / `ANO_API_KEY` set explicitly
+- A project-level `.ano/config.json` provides a key
+- `ANO_NO_AUTO_LOCAL=1`
+- CWD is outside any directory with the `dev:local` Postgres marker
+- No `local` profile exists
+
+### Quiet variant
+
+`ANO_QUIET_PROFILE_HINT=1` suppresses the stderr hint while still
+auto-picking. Useful for scripts that want clean stdout/stderr but
+trust the auto-pick.
+
+### Tests
+
+6 new in `auth.test.ts` covering the matrix: cwd-under-running-stack,
+cwd-outside, no-local-profile-exists, ANO_NO_AUTO_LOCAL, explicit
+`--profile default` overrides, ANO_QUIET_PROFILE_HINT.
+
+## [2.15.0] — 2026-05-13
+
+### Added — global `--profile` flag
+
+```
+$ ano --profile local channels list --agent     # uses ~/.config/ano/credentials.json[local]
+$ ANO_PROFILE=local ano channels list --agent   # same via env var
+```
+
+Previously `--profile` only existed at `auth login` time (for SAVING
+to a profile). There was no way to USE a non-`default` profile from
+the global CLI without manually passing `--key <key> --endpoint <url>`
+or setting env vars by hand. The `dev:local` flow auto-provisions a
+`local` profile in `~/.config/ano/credentials.json`, but invoking it
+required this flag.
+
+Resolution order (unchanged for everything except the new `--profile`):
+
+1. `--key` flag → use it
+2. `ANO_API_KEY` env → use it
+3. `.ano/config.json` (project) → use it
+4. `~/.config/ano/credentials.json` →
+   - `--profile X` / `ANO_PROFILE=X` → look up profile X (errors with
+     a list of available profiles if missing — never silently falls
+     through to `default`)
+   - otherwise → `default`, then first profile
+
+3 new tests in `tests/unit/auth.test.ts`.
+
+## [2.14.0] — 2026-05-13
+
+### Added — `ano dev smoke`
+
+One-command sanity check that runs the canonical CLI surface against
+the active profile and reports per-call timings + a one-line summary.
+Pairs with the monorepo's `dev:local` auto-provisioning to give devs a
+sub-second answer to "did my change break the shell↔CLI flow?"
+
+```
+$ ano --profile local dev smoke
+✓ context           48ms Local Dev · Ruben Flam
+✓ channels list     32ms 3 channels
+✓ users list        29ms 1 user
+✓ tables list       30ms 0 tables
+✓ messages send     45ms → m_abc (#test-history)
+all green · 5/5 in 184ms · daemon: warm (pid 1234, v2.14.0)
+endpoint: http://127.0.0.1:3001
+```
+
+Flags:
+
+- `--no-write` — skip the message-send step (read-only smoke against
+  rate-limited environments)
+- `-c, --channel-name <name>` — override the default channel pick
+- `--agent` / `--json` — emit a JSON envelope instead of the table
+
+Channel picking order: `test-history` → `test-*` → `random` → first
+messageable. Keeps smoke writes out of business-relevant channels.
+
+Bypassed by the daemon (always runs in the calling process) so the
+summary can probe daemon state and report it accurately.
+
+## [2.13.3] — 2026-05-13
+
+### Fixed (review pass)
+
+- `daemon/server.ts` — dispatch error reply now sends `err.message` only
+  (previously sent `err.stack`, leaking the daemon's absolute file
+  paths and noisy frames into the client's stderr).
+
+### Tests
+
+- `daemon-timeout.test.ts` — widened the elapsed-time tolerance from
+  600 ms to 2000 ms. The original bound was tight against the test
+  client's connect-retry loop (~500 ms worst case); the meaningful
+  assertion is "not 30 s", not "exactly 100 ms".
+- `retry.test.ts` — new test verifies the new default `maxRetries=2`
+  also caps 502 retries (3 total attempts then throw). Previously the
+  502 test passed `maxRetries: 5` and never exercised the new default.
+
+## [2.13.2] — 2026-05-13
+
+### Changed — spotless CLI failure mode
+
+The CLI's underlying `retryFetch` previously retried HTTP 429 (rate
+limit) responses silently with exponential backoff (up to ~30 s per
+attempt, 10 attempts). On rapid-fire calls that tripped the server's
+60 req/min limit, this turned a fast error into a multi-second hang
+inside the daemon's serial dispatch — the very thing the v2.13.1
+timeout fix was a band-aid for.
+
+New defaults match the SKILL.md contract — fail fast, surface the
+exit code, let the caller decide:
+
+- **HTTP 429** → return immediately, no waiting. The api-client throws
+  `RateLimitError` → CLI exits with code 5. Agent backs off per the
+  documented "wait 10+ seconds" rule.
+- **Network errors** (`ECONNREFUSED`, `ETIMEDOUT`, etc.) → max 2
+  retries by default (was 10). A stuck connection no longer adds
+  ~30 s to a CLI command.
+- **5xx (502/503/504)** — same retry logic as before, but the new
+  default `maxRetries=2` applies (was 10). `500` is still capped at
+  2 (application errors aren't usually transient).
+- **Other 4xx** → unchanged: `PermanentError`, no retry.
+
+### Internal
+
+- `retryFetch` accepts a new `retryRateLimit?: boolean` option.
+  Default `false` (CLI behaviour). The `bridge/` long-running
+  connector (used by `ano connect` to OpenClaw) opts back into the
+  historical generous retry budget via
+  `{ maxRetries: 10, baseDelayMs: 1000, maxDelayMs: 30000, retryRateLimit: true }`.
+- New `tests/unit/retry.test.ts` (11 cases) pins the new defaults
+  and the bridge override path.
+
+## [2.13.1] — 2026-05-13
+
+### Fixed
+
+- **Daemon dispatch deadlock under sustained load.** Pre-fix, if a
+  dispatched command hung indefinitely (server rate-limit retry
+  loops, awaited fetch that never resolved, etc.) the serial queue
+  blocked forever — every queued request behind it timed out. Now
+  each dispatch is wrapped in a 60 s timeout; on timeout the daemon
+  replies with `code: "internal"` + a "restarting" message and
+  `process.exit(0)`s. The next call falls through to direct execution
+  via the existing client fallback and opportunistically respawns a
+  fresh daemon. Bulletproof for the symptom; deeper audit of which
+  commands leak module-scope state is a follow-up.
+
+### Internal
+
+- `startDaemon` now accepts `dispatchTimeoutMs` (test override) plus
+  two underscore-prefixed test hooks: `_dispatchOverride` (replace
+  the dispatch function) and `_onShutdown` (replace `process.exit`).
+- New `tests/unit/daemon-timeout.test.ts` (1 test) pins the
+  reply-then-shutdown behaviour using a hanging dispatch override.
+
+## [2.13.0] — 2026-05-12
+
+### Added
+
+- **`ano-daemon`** — long-lived background process that holds the warm
+  Node bundle, eliminating the ~140 ms cold-start tax on every CLI
+  call. Measured impact at staging-from-Sweden: logical action
+  ("find #channel + send") drops from 511 ms → 251 ms (51 % faster).
+  Per-call CLI tax drops from ~135 ms to ~12 ms.
+- **`ano daemon start|stop|status`** — user-facing controls for the
+  daemon process. `status` reports PID, socket path, uptime, and the
+  daemon's CLI version.
+
+### Changed
+
+- The `ano` shim is now ~4.4 KB (down from 148 KB). The full command
+  tree is dynamic-imported only when the daemon path doesn't apply,
+  so warm-daemon calls skip the heavy parse entirely.
+- On every invocation: try the daemon socket first (~5 ms) → fall back
+  to today's direct execution path on any failure. First call after
+  install is identical to today's speed; the daemon is opportunistically
+  spawned in the background for the next call.
+
+### Bypass rules
+
+The daemon path is skipped automatically for:
+
+- `ANO_NO_DAEMON=1` env var
+- `ano daemon …` itself
+- `ano auth login | complete | refresh-region | logout` (browser/file
+  interactions clearer in the calling shell)
+- Any argv reading stdin (`--file -`, `-f -`, `--file=-`)
+
+### Internal
+
+- New protocol module (`src/daemon/protocol.ts`) defines the
+  newline-delimited JSON wire format. Protocol version `v1`.
+- The daemon includes its own CLI version in every response. On
+  CLI-version mismatch (user upgraded npm package while daemon is
+  warm) the daemon rejects the request and self-shuts-down so the
+  next call gets a fresh daemon matching the new CLI.
+- Idle exit: 10 minutes of no requests → daemon exits.
+- Serial dispatch — one command at a time per daemon process. Avoids
+  cross-request stdout/cwd/env bleed.
+
+## [2.12.0] — 2026-05-12
+
+### Added
+
+- `ano messages send --channel-name <name>` (`-n`) — resolves the
+  channel name on the server in the same call as the message insert.
+  Saves the previous `ano channels list` round trip when the agent
+  knows the channel name but not the id. Works with the `<ano_payload>`
+  flow and any other "post in #foo" prompt. Pairs with the matching
+  `ano-skills` invariant update.
+
+### Changed
+
+- `ano messages send` no longer requires `--channel`. Either
+  `--channel <id>` or `--channel-name <name>` is accepted; the CLI
+  errors clearly when neither is provided.
+  > > > > > > > origin/main
 
 ## [2.11.1] — 2026-05-11
 

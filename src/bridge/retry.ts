@@ -1,10 +1,22 @@
 /**
- * Retry-aware fetch with exponential backoff.
+ * Retry-aware fetch.
  *
- * - 5xx / network errors → retry
- * - 429 → respect Retry-After header, then retry
- * - 4xx (except 429) → throw PermanentError (no retry)
- * - Max retries exhausted → throw last error
+ * Defaults are tuned for one-shot CLI calls — fail fast, surface clear
+ * errors. The bridge (long-running connector for external coworkers)
+ * opts back into the historical generous retry budget via options.
+ *
+ * Behaviour:
+ *   • 429 → by default, return the response unmodified so the caller
+ *     can throw a `RateLimitError` and exit with code 5 (per the
+ *     SKILL.md contract). Pass `retryRateLimit: true` to retry with
+ *     `Retry-After`-aware backoff (used by the bridge).
+ *   • 5xx (502/503/504) → retry up to `maxRetries`, exponential backoff.
+ *   • 500 → cap retries at 2 (application errors aren't usually
+ *     transient — surface them fast).
+ *   • Network errors (ECONNREFUSED / ETIMEDOUT / etc.) → retry up to
+ *     `maxRetries`. Default `maxRetries = 2` so a stuck connection
+ *     doesn't add ~30 s to a CLI command.
+ *   • Other 4xx → throw `PermanentError` immediately. No retry.
  */
 
 export class PermanentError extends Error {
@@ -18,12 +30,20 @@ export class PermanentError extends Error {
 }
 
 export type RetryOptions = {
+  /** Total retry attempts after the first try. Default: 2. */
   maxRetries?: number;
   baseDelayMs?: number;
   maxDelayMs?: number;
+  /**
+   * Retry on HTTP 429 (Rate Limited) responses. Default `false` — the
+   * CLI surfaces 429 as exit code 5 immediately so the agent can decide
+   * when to back off. The bridge sets this to `true`.
+   */
+  retryRateLimit?: boolean;
 };
 
-const DEFAULT_MAX_RETRIES = 10;
+/** CLI-friendly default. Bridge overrides via `{ maxRetries: 10 }`. */
+const DEFAULT_MAX_RETRIES = 2;
 const DEFAULT_BASE_DELAY = 1000;
 const DEFAULT_MAX_DELAY = 30_000;
 
@@ -48,6 +68,7 @@ export async function retryFetch(
   const maxRetries = options?.maxRetries ?? DEFAULT_MAX_RETRIES;
   const baseDelay = options?.baseDelayMs ?? DEFAULT_BASE_DELAY;
   const maxDelay = options?.maxDelayMs ?? DEFAULT_MAX_DELAY;
+  const retryRateLimit = options?.retryRateLimit ?? false;
 
   let lastError: Error | undefined;
 
@@ -69,7 +90,11 @@ export async function retryFetch(
     if (res.ok) return res;
 
     if (res.status === 429) {
-      // Rate limited — respect Retry-After, consume body to free connection
+      // Default: return the 429 response so the caller throws a
+      // RateLimitError and exits with code 5. No silent waiting.
+      if (!retryRateLimit) return res;
+
+      // Long-running consumer (bridge) — respect Retry-After + backoff.
       await res.body?.cancel().catch(() => {});
       const retryAfter = parseRetryAfter(res.headers.get("Retry-After"));
       const delay =
@@ -84,11 +109,11 @@ export async function retryFetch(
     if (res.status >= 500) {
       // Distinguish transient gateway errors from application errors:
       //   • 502 / 503 / 504 — proxy/upstream-down/timeout — retry up to
-      //     `maxRetries` (full exponential backoff, ~60s ceiling).
+      //     `maxRetries` (full exponential backoff, ~maxDelay ceiling).
       //   • 500 — application error from the server's catch-all. These
       //     are usually NOT transient (a SQL bug, a thrown exception in
-      //     a handler). Cap at 2 quick retries (~3s) so users surface
-      //     the failure fast instead of waiting through 10 attempts.
+      //     a handler). Cap at 2 quick retries (~3 s) so users surface
+      //     the failure fast instead of waiting through the full budget.
       await res.body?.cancel().catch(() => {});
       lastError = new Error(`Server error: ${res.status}`);
       const isApplicationError = res.status === 500;
