@@ -36,6 +36,21 @@ export function resolveAuth(globals: GlobalOptions): ResolvedAuth {
 
   const creds = loadGlobalCredentials();
   if (creds) {
+    // Explicit --profile / ANO_PROFILE: must exist; never fall through.
+    if (globals.profile) {
+      const named = creds.profiles[globals.profile];
+      if (!named?.key) {
+        const available = Object.keys(creds.profiles).join(", ") || "(none)";
+        throw new AuthError(
+          `Profile '${globals.profile}' not found. Available: ${available}. Run \`ano auth login --profile ${globals.profile} ...\` to create it.`,
+        );
+      }
+      return {
+        key: named.key,
+        endpoint: named.endpoint ?? globals.endpoint,
+        source: "global",
+      };
+    }
     const profile = creds.profiles.default ?? Object.values(creds.profiles)[0];
     if (profile?.key) {
       return {
@@ -46,7 +61,5 @@ export function resolveAuth(globals: GlobalOptions): ResolvedAuth {
     }
   }
 
-  throw new AuthError(
-    "No API key found. Run `ano auth login` or pass --key",
-  );
+  throw new AuthError("No API key found. Run `ano auth login` or pass --key");
 }

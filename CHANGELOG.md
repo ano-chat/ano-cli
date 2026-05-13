@@ -4,6 +4,35 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.15.0] — 2026-05-13
+
+### Added — global `--profile` flag
+
+```
+$ ano --profile local channels list --agent     # uses ~/.config/ano/credentials.json[local]
+$ ANO_PROFILE=local ano channels list --agent   # same via env var
+```
+
+Previously `--profile` only existed at `auth login` time (for SAVING
+to a profile). There was no way to USE a non-`default` profile from
+the global CLI without manually passing `--key <key> --endpoint <url>`
+or setting env vars by hand. The `dev:local` flow auto-provisions a
+`local` profile in `~/.config/ano/credentials.json`, but invoking it
+required this flag.
+
+Resolution order (unchanged for everything except the new `--profile`):
+
+1. `--key` flag → use it
+2. `ANO_API_KEY` env → use it
+3. `.ano/config.json` (project) → use it
+4. `~/.config/ano/credentials.json` →
+   - `--profile X` / `ANO_PROFILE=X` → look up profile X (errors with
+     a list of available profiles if missing — never silently falls
+     through to `default`)
+   - otherwise → `default`, then first profile
+
+3 new tests in `tests/unit/auth.test.ts`.
+
 ## [2.14.0] — 2026-05-13
 
 ### Added — `ano dev smoke`
