@@ -4,6 +4,30 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.20.0] — 2026-05-15
+
+### Added
+
+- **`ano session start` auto-promotes the local opt-in flag** when the
+  user has already opted in via their Ano user preferences (desktop
+  app). The flag flips from `unset` → `enabled` on the first successful
+  call, so every CLI machine becomes self-sufficient after one click in
+  the desktop. Pairs with project-ano migration 144 (`users.agent_status_opt_in`).
+- **`NotFoundError.code`** carries the server's MCP error-code
+  discriminator (parsed from the 404 response body). Lets `ano session
+start` differentiate `not_opted_in` (user hasn't enabled the feature)
+  from a bare `not_found` (kill-switch off, missing list).
+
+### Changed
+
+- **`ano session start` discovery line** now mentions the desktop-app
+  preference as the recommended opt-in path. The CLI `enable` command
+  is positioned as a per-machine escape hatch.
+- **`ano session start` no longer short-circuits on `unset`.** It now
+  always hits the server; the discovery line only prints when the
+  server returns 404 with `code === "not_opted_in"`. This enables the
+  auto-promote flow above. `disabled` keeps its silent short-circuit.
+
 ## [2.19.0] — 2026-05-13
 
 ### Added

@@ -710,12 +710,27 @@ export function createApiClient(auth: ResolvedAuth): AnoApiClient {
   };
 }
 
-async function handleHttpError(res: Response): Promise<never> {
+// Exported for test access — parses the response body for MCP error
+// codes. Not part of the public CLI API; the only non-test caller is
+// the local `post`/`uploadFile` helpers below.
+export async function handleHttpError(res: Response): Promise<never> {
   const text = await res.text().catch(() => "");
   if (res.status === 401) throw new AuthError("Invalid or expired API key");
   if (res.status === 403)
     throw new AuthError("Insufficient permissions", ExitCode.FORBIDDEN);
-  if (res.status === 404) throw new NotFoundError(text || "Not found");
+  if (res.status === 404) {
+    // Parse MCP error-code from the 404 body when present (CLI ≥ 2.20.0 +
+    // server with op-manifest body-shape change). Older servers omit
+    // `code`; treat that as `undefined` rather than failing the parse.
+    let code: string | undefined;
+    try {
+      const body = JSON.parse(text) as { error?: string; code?: string };
+      code = body.code;
+    } catch {
+      // Non-JSON body — keep code undefined and use the text as-is.
+    }
+    throw new NotFoundError(text || "Not found", code);
+  }
   if (res.status === 429) throw new RateLimitError("Rate limit exceeded");
   throw new ApiError(text || `HTTP ${res.status}`, res.status);
 }

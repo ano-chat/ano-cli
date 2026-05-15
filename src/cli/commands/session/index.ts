@@ -52,7 +52,7 @@ export function registerSession(parent: Command): void {
 }
 
 const DISCOVERY_LINE =
-  "ano session: tracking available — run `ano session enable` to opt this machine in, or `ano session disable` to silence this.";
+  "ano session: tracking available — enable in your Ano user preferences (desktop app) to post from every machine, or run `ano session enable` to opt in for this machine only.";
 
 function registerStart(parent: Command): void {
   parent
@@ -71,11 +71,11 @@ function registerStart(parent: Command): void {
     .action(
       withErrorHandler(async (opts, cmd) => {
         const optIn = getAgentStatusOptIn();
-        if (optIn === "disabled") return; // pure silence
-        if (optIn === "unset") {
-          process.stderr.write(`${DISCOVERY_LINE}\n`);
-          return; // no session_id on stdout — skill abandons further calls
-        }
+        if (optIn === "disabled") return; // pure silence — pre-existing escape hatch
+        // `unset` no longer short-circuits: fall through to the server
+        // call so we can auto-promote on success (covers the "opted in
+        // via desktop preferences" case where the local flag has never
+        // been touched on this machine).
 
         const globals = cmd.optsWithGlobals() as GlobalOptions;
         const auth = resolveAuth(globals);
@@ -87,13 +87,40 @@ function registerStart(parent: Command): void {
           (opts.kind as "claude_code" | "codex" | "other" | undefined) ??
           "claude_code";
 
-        const result = await client.agentSessionStart({
-          workspace_id: globals.workspace,
-          title: opts.title,
-          branch,
-          worktree,
-          agent_kind: kind,
-        });
+        let result;
+        try {
+          result = await client.agentSessionStart({
+            workspace_id: globals.workspace,
+            title: opts.title,
+            branch,
+            worktree,
+            agent_kind: kind,
+          });
+        } catch (err) {
+          if (err instanceof NotFoundError) {
+            if (err.code === "not_opted_in") {
+              // Server says the user hasn't opted in. Print the
+              // discovery line so the user knows how to enable it
+              // (desktop pref OR `ano session enable`). Stdout stays
+              // empty — skill abandons further calls for this session.
+              process.stderr.write(`${DISCOVERY_LINE}\n`);
+              return;
+            }
+            // Any other 404 (kill-switch off, list deleted, code field
+            // absent on older server) — silent no-op.
+            return;
+          }
+          throw err;
+        }
+
+        // Auto-promote local opt-in: if the local flag was `unset` and
+        // the server accepted the call, the user must have opted in
+        // server-side (or the kill-switch is on with a permissive
+        // gate). Either way, future runs on this machine can skip the
+        // discovery-line code path. Idempotent if already `enabled`.
+        if (optIn === "unset") {
+          setAgentStatusOptIn("enabled");
+        }
 
         writeCachedSession({
           session_id: result.session_id,
@@ -226,7 +253,9 @@ function registerEnd(parent: Command): void {
 function registerEnable(parent: Command): void {
   parent
     .command("enable")
-    .description("Opt this machine in to agent session tracking")
+    .description(
+      "Opt this machine in to agent session tracking. The recommended path is to toggle the preference in your Ano user profile (desktop app) — that propagates to every CLI machine on its next `ano session start`. This per-machine command is the local-only escape hatch.",
+    )
     .action(() => {
       setAgentStatusOptIn("enabled");
       process.stderr.write(
