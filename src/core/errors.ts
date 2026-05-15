@@ -19,7 +19,17 @@ export class AuthError extends AnoCliError {
 }
 
 export class NotFoundError extends AnoCliError {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    /**
+     * MCP error-code discriminator from the server's 404 response body.
+     * Lets callers distinguish e.g. `not_opted_in` (user hasn't enabled
+     * the feature in their desktop profile) from a plain `not_found`
+     * (kill-switch off, missing list, deleted row). `undefined` when
+     * the body is not JSON or the field is absent (older server).
+     */
+    public readonly code?: string,
+  ) {
     super(message, ExitCode.NOT_FOUND);
     this.name = "NotFoundError";
   }

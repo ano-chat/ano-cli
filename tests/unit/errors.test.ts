@@ -58,6 +58,16 @@ describe("NotFoundError", () => {
     expect(err.name).toBe("NotFoundError");
     expect(err.message).toBe("channel missing");
   });
+
+  it("carries optional MCP code from the server's 404 body", () => {
+    const err = new NotFoundError("not opted in", "not_opted_in");
+    expect(err.code).toBe("not_opted_in");
+  });
+
+  it("code is undefined when omitted", () => {
+    const err = new NotFoundError("plain 404");
+    expect(err.code).toBeUndefined();
+  });
 });
 
 describe("RateLimitError", () => {
