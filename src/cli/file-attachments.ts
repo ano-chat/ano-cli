@@ -70,6 +70,8 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   ".txt": "text/plain",
   ".md": "text/markdown",
   ".csv": "text/csv",
+  ".html": "text/html",
+  ".htm": "text/html",
   ".json": "application/json",
   ".zip": "application/zip",
   ".tar": "application/x-tar",
@@ -147,7 +149,7 @@ export async function readFileForUpload(
   if (!contentType) {
     throw new FileAttachmentError(
       `Unsupported file type "${ext || "(no extension)"}" for ${path}. ` +
-        "Supported: images, video, audio, pdf, office docs, text, json, zip, tar, gz.",
+        "Supported: images, video, audio, pdf, office docs, text, html, json, zip, tar, gz.",
     );
   }
   const body = await readFile(path);
