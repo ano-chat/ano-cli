@@ -117,6 +117,10 @@ describe("readFileForUpload", () => {
       ["a.md", "text/markdown"],
       ["a.json", "application/json"],
       ["a.csv", "text/csv"],
+      // HTML attachments are server-side force-downloaded; here we just
+      // need the CLI's extension → MIME map to allow them through.
+      ["demo.html", "text/html"],
+      ["demo.htm", "text/html"],
     ];
     for (const [name, expected] of cases) {
       const path = join(workDir, name);
