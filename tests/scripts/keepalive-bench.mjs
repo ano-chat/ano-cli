@@ -27,7 +27,7 @@
  * `npm run test:keepalive` (added to package.json scripts).
  */
 import http from "node:http";
-import { Agent } from "undici";
+import { Agent, fetch } from "undici";
 
 const args = new Set(process.argv.slice(2));
 const wantTimings = args.has("--bench");

@@ -5,11 +5,19 @@
  * historical retry-with-backoff behaviour via `retryRateLimit: true`.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PermanentError, retryFetch } from "../../src/bridge/retry.js";
+import {
+  PermanentError,
+  retryFetch,
+  _setFetchImplForTests,
+  _originalFetchImpl,
+} from "../../src/bridge/retry.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  // Always restore the real fetch impl after each test so leaks
+  // between specs can't manifest as "mock exhausted" errors.
+  _setFetchImplForTests(_originalFetchImpl);
 });
 
 function mockFetch(
@@ -22,7 +30,9 @@ function mockFetch(
     if (!r) throw new Error("mock exhausted");
     return r;
   });
-  vi.stubGlobal("fetch", fn);
+  // retry.ts uses an injected fetch impl (default = undici.fetch).
+  // Swap it for our mock; restore in afterEach.
+  _setFetchImplForTests(fn);
   return fn;
 }
 

@@ -39,54 +39,44 @@ describe("sharedHttpAgent", () => {
 
 describe("retryFetch passes the agent through", () => {
   it("includes `dispatcher: sharedHttpAgent` in the fetch init by default", async () => {
-    // Stub global fetch to capture the init argument.
-    let captured: RequestInit | undefined;
-    const origFetch = globalThis.fetch;
-    globalThis.fetch = (async (
-      _url: string | URL | Request,
-      init?: RequestInit,
-    ) => {
+    const { _setFetchImplForTests, _originalFetchImpl, retryFetch } =
+      await import("../../src/bridge/retry.js");
+    let captured: unknown;
+    _setFetchImplForTests(async (_url, init) => {
       captured = init;
       return new Response("ok", { status: 200 });
-    }) as typeof fetch;
-
+    });
     try {
-      const { retryFetch } = await import("../../src/bridge/retry.js");
       const r = await retryFetch("http://127.0.0.1:1/test", {});
       expect(r.ok).toBe(true);
     } finally {
-      globalThis.fetch = origFetch;
+      _setFetchImplForTests(_originalFetchImpl);
     }
 
     expect(captured).toBeDefined();
-    // The dispatcher field isn't in standard RequestInit; cast to read.
     const dispatcher = (captured as { dispatcher?: unknown }).dispatcher;
     expect(dispatcher).toBe(sharedHttpAgent);
   });
 
   it("respects a caller-supplied dispatcher (override path)", async () => {
-    let captured: RequestInit | undefined;
-    const origFetch = globalThis.fetch;
-    globalThis.fetch = (async (
-      _url: string | URL | Request,
-      init?: RequestInit,
-    ) => {
+    const { _setFetchImplForTests, _originalFetchImpl, retryFetch } =
+      await import("../../src/bridge/retry.js");
+    let captured: unknown;
+    _setFetchImplForTests(async (_url, init) => {
       captured = init;
       return new Response("ok", { status: 200 });
-    }) as typeof fetch;
-
+    });
     const fakeDispatcher = {
       destroy: () => Promise.resolve(),
     } as unknown as Agent;
 
     try {
-      const { retryFetch } = await import("../../src/bridge/retry.js");
       await retryFetch("http://127.0.0.1:1/test", {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         dispatcher: fakeDispatcher as any,
       } as RequestInit);
     } finally {
-      globalThis.fetch = origFetch;
+      _setFetchImplForTests(_originalFetchImpl);
     }
 
     const dispatcher = (captured as { dispatcher?: unknown }).dispatcher;
