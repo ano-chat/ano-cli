@@ -18,8 +18,16 @@
  *   • Any argv hint that the command will read stdin (`--file -`, etc.).
  */
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { connect } from "node:net";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import {
   PROTOCOL_VERSION,
   defaultPidPath,
@@ -45,13 +53,27 @@ const CONNECT_TIMEOUT_MS = 150;
  */
 const PING_TIMEOUT_MS = 1000;
 /**
- * Exec response deadline. Drops the prior 30s window to 10s — the
- * daemon's own per-dispatch timeout is 60s, but the client doesn't
- * need to wait that long: a dispatch that's still running after 10s
- * is overwhelmingly likely to be a wedge or runaway. Pre-flight ping
- * already weeded out unresponsive daemons.
+ * Exec response deadline. The daemon is a best-effort accelerator over
+ * the ~140 ms cold-Node startup; if it can't beat that comfortably it
+ * isn't earning its keep. 800 ms is ~16× the healthy p99 (~50 ms) and
+ * still well below the threshold where a human notices a hang. Crossing
+ * it trips the circuit breaker (see `tripCircuitBreaker`) so the next
+ * call bypasses the daemon entirely.
+ *
+ * Pre-2.20: 10 s — a wedged daemon was structurally able to add 10 s of
+ * latency to every CLI invocation until a human noticed and ran
+ * `ano daemon stop`. That class of failure is what the circuit breaker
+ * + tight deadline together rule out.
  */
-const RESPONSE_TIMEOUT_MS = 10 * 1000;
+const RESPONSE_TIMEOUT_MS = 800;
+/**
+ * Circuit-breaker cooldown. After a single slow response (or other
+ * daemon-side fault that suggests the warm process is in a bad state),
+ * the CLI skips the daemon entirely for this window. Long enough that a
+ * busy session doesn't keep retrying a wedged daemon; short enough that
+ * a transient blip self-heals without the user noticing.
+ */
+const CIRCUIT_BREAKER_COOLDOWN_MS = 10 * 60 * 1000;
 
 // `dev` runs sanity checks that need to read the calling process's
 // profile/env directly AND probe daemon state — must run in-process.
@@ -118,18 +140,24 @@ export function shouldBypass(argv: string[]): boolean {
  * caller). Returns `false` on any failure → caller should run directly.
  *
  * Flow:
+ *   0. Check the circuit breaker. If a previous call tripped it within
+ *      the cooldown window, bypass the daemon entirely — no socket
+ *      connect, no ping, no waiting. This is the safety net that
+ *      makes "daemon broken → every call slow" impossible.
  *   1. Pre-flight ping (1s timeout). If the socket exists but the
  *      daemon doesn't pong, treat it as wedged: SIGKILL via the PID
  *      file, unlink the socket, fork a fresh daemon, and fall back
- *      to direct execution for THIS call. The previous design just
- *      waited the full 30s exec timeout for a reply that never came.
+ *      to direct execution for THIS call.
  *   2. If the daemon's reported `cliVersion` doesn't match ours, ask
  *      it to shut down (it'll do so itself when we send exec, but a
  *      clean ping-driven respawn avoids the noisy version_mismatch
  *      reply path on the next call). Fall back to direct.
  *   3. Healthy daemon → dispatch the exec and proxy stdout/stderr.
+ *      If the response deadline lapses or the daemon returns an
+ *      internal error, trip the circuit breaker before falling back.
  */
 export async function runWithDaemon(argv: string[]): Promise<boolean> {
+  if (isCircuitBreakerTripped()) return false;
   const socketPath = defaultSocketPath();
   const health = await ensureHealthy(socketPath);
   if (health === "no-daemon") {
@@ -145,6 +173,72 @@ export async function runWithDaemon(argv: string[]): Promise<boolean> {
   }
   // health === "healthy" — proceed with exec.
   return attempt(socketPath, argv);
+}
+
+// ---------------------------------------------------------------------
+// Circuit breaker
+//
+// Records a "daemon disabled until" UNIX timestamp at a per-user path.
+// `runWithDaemon` reads it on every call and short-circuits if the
+// daemon is in the penalty box. The file is intentionally a single
+// integer string for fast (~50 µs) reads — anything heavier defeats
+// the point of having a circuit breaker at all.
+// ---------------------------------------------------------------------
+
+/** Resolve the breaker file path. Override via env var for tests. */
+export function defaultCircuitBreakerPath(): string {
+  if (process.env.ANO_DAEMON_CIRCUIT_BREAKER_PATH)
+    return process.env.ANO_DAEMON_CIRCUIT_BREAKER_PATH;
+  const xdgCache = process.env.XDG_CACHE_HOME;
+  const base = xdgCache ? xdgCache : join(homedir(), ".cache");
+  return join(base, "ano", "daemon-disabled-until");
+}
+
+/**
+ * Returns true if the breaker is tripped right now. Reads + parses the
+ * timestamp file; missing/corrupt file means "not tripped".
+ */
+export function isCircuitBreakerTripped(now: number = Date.now()): boolean {
+  const path = defaultCircuitBreakerPath();
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch {
+    return false;
+  }
+  const ts = Number(raw.trim());
+  if (!Number.isFinite(ts) || ts <= 0) return false;
+  return ts > now;
+}
+
+/**
+ * Trip the breaker until `now + CIRCUIT_BREAKER_COOLDOWN_MS`. Best
+ * effort — a filesystem error here just means the next call attempts
+ * the daemon again, which is acceptable degradation.
+ */
+export function tripCircuitBreaker(now: number = Date.now()): void {
+  const path = defaultCircuitBreakerPath();
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, String(now + CIRCUIT_BREAKER_COOLDOWN_MS), {
+      mode: 0o600,
+    });
+  } catch {
+    // Best effort — the cost of failing to write is one extra slow
+    // call, which is exactly what the breaker is supposed to prevent.
+    // No good way to surface this to the user without polluting
+    // stderr on every CLI call. Daemon log would be appropriate; we
+    // don't have a log channel from the client side yet.
+  }
+}
+
+/** Clear the breaker. Used by `ano daemon start` and tests. */
+export function clearCircuitBreaker(): void {
+  try {
+    unlinkSync(defaultCircuitBreakerPath());
+  } catch {
+    // already clear
+  }
 }
 
 export type HealthResult = "healthy" | "no-daemon" | "killed-and-respawned";
@@ -274,7 +368,17 @@ function attempt(socketPath: string, argv: string[]): Promise<boolean> {
     let buffer = "";
     let settled = false;
     const connectTimer = setTimeout(() => cleanup(false), CONNECT_TIMEOUT_MS);
-    const responseTimer = setTimeout(() => cleanup(false), RESPONSE_TIMEOUT_MS);
+    /**
+     * Response deadline. Tripping it is treated as a *daemon misbehavior*
+     * signal: we (a) fall back to direct execution this call, (b) trip
+     * the circuit breaker so the next 10 min of calls skip the daemon
+     * entirely, and (c) SIGKILL the daemon so it can't keep producing
+     * stale replies after the client has moved on.
+     */
+    const responseTimer = setTimeout(() => {
+      onDaemonMisbehavior(socketPath, "response_timeout");
+      cleanup(false);
+    }, RESPONSE_TIMEOUT_MS);
     function cleanup(result: boolean): void {
       if (settled) return;
       settled = true;
@@ -315,7 +419,14 @@ function attempt(socketPath: string, argv: string[]): Promise<boolean> {
         return;
       }
       if (!resp.ok) {
-        // version_mismatch / internal / shutdown_acked — fall back.
+        // version_mismatch / shutdown_acked are legitimate daemon
+        // signals — DON'T trip the breaker (the daemon is behaving
+        // correctly, just declining this request). `internal` IS
+        // a misbehavior signal (per the server's dispatch_timeout
+        // code path); breaker trips.
+        if (resp.code === "internal") {
+          onDaemonMisbehavior(socketPath, "internal_error");
+        }
         cleanup(false);
         return;
       }
@@ -330,6 +441,22 @@ function attempt(socketPath: string, argv: string[]): Promise<boolean> {
     });
     sock.on("error", () => cleanup(false));
   });
+}
+
+/**
+ * Handle a daemon-misbehavior signal: trip the circuit breaker so the
+ * next CIRCUIT_BREAKER_COOLDOWN_MS of calls skip the daemon, and
+ * SIGKILL the daemon process so it can't keep producing stale replies.
+ * Best effort throughout — failures here just degrade to "slow this
+ * one call" which is acceptable.
+ */
+function onDaemonMisbehavior(
+  socketPath: string,
+  _reason: "response_timeout" | "internal_error",
+): void {
+  tripCircuitBreaker();
+  const pid = readPidFile();
+  forceKillDaemon(socketPath, pid);
 }
 
 /** `process.env` may contain `undefined` values per Node typings; strip them. */

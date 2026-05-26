@@ -28,6 +28,10 @@ import {
   type PingRequest,
 } from "../../../daemon/protocol.js";
 import { startDaemon } from "../../../daemon/server.js";
+import {
+  clearCircuitBreaker,
+  isCircuitBreakerTripped,
+} from "../../../daemon/client.js";
 
 export function registerDaemon(parent: Command): void {
   const group = parent
@@ -60,6 +64,10 @@ export function registerDaemon(parent: Command): void {
         );
         process.exit(1);
       }
+      // An explicit `ano daemon start` is the user telling us they want
+      // the daemon back. Clear any prior circuit-breaker trip so the
+      // next CLI call actually tries the daemon instead of bypassing it.
+      clearCircuitBreaker();
       const child = spawn(node, [script, "daemon", "serve"], {
         detached: true,
         stdio: "ignore",
@@ -96,16 +104,24 @@ export function registerDaemon(parent: Command): void {
       if (ping && ping.ok && "pong" in ping) {
         const r = ping as PingResponse;
         const uptimeMs = Date.now() - r.startedAt;
-        process.stdout.write(
-          [
-            `status:  running`,
-            `pid:     ${r.pid}`,
-            `socket:  ${socketPath}`,
-            `uptime:  ${formatDuration(uptimeMs)}`,
-            `cli:     v${r.cliVersion}`,
-            `proto:   v${r.v}`,
-          ].join("\n") + "\n",
-        );
+        const lines = [
+          `status:  running`,
+          `pid:     ${r.pid}`,
+          `socket:  ${socketPath}`,
+          `uptime:  ${formatDuration(uptimeMs)}`,
+          `cli:     v${r.cliVersion}`,
+          `proto:   v${r.v}`,
+        ];
+        if (isCircuitBreakerTripped()) {
+          // The daemon answered ping but a prior call tripped the
+          // breaker — surface that explicitly so the user knows CLI
+          // calls are currently bypassing this daemon. `ano daemon
+          // start` clears the breaker.
+          lines.push(
+            `breaker: TRIPPED (CLI calls bypass daemon; run \`ano daemon start\` to clear)`,
+          );
+        }
+        process.stdout.write(lines.join("\n") + "\n");
         return;
       }
       // Stale pid file? Report it so the user knows what to clean up.
