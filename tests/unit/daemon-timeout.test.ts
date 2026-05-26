@@ -39,6 +39,7 @@ beforeAll(() => {
     socketPath,
     pidPath: join(dir, "test.pid"),
     idleMs: 0,
+    skipPrewarm: true,
     dispatchTimeoutMs: 100, // tight window so the test fires quickly
     // Dispatch hangs forever — simulates a real-world stuck command.
     _dispatchOverride: () => new Promise<never>(() => {}),

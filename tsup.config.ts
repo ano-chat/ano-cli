@@ -16,6 +16,15 @@ export default defineConfig({
   define: {
     __VERSION__: JSON.stringify(process.env.npm_package_version ?? "0.0.0-dev"),
   },
+  // undici uses dynamic `require()` for `node:assert` and other core
+  // modules at runtime. tsup's ESM bundle wraps requires in a "Dynamic
+  // require not supported" shim, which breaks undici when the bundled
+  // copy runs. Mark it external so it resolves from node_modules at
+  // runtime against the installed `undici` package (declared in
+  // dependencies). Node 18+ ships undici internally, but we don't have
+  // a stable public path to that internal copy — the npm package is
+  // the safe option.
+  external: ["undici"],
   // Bundle the latest ano-cli SKILL.md into dist/ at build time. This way
   // a fresh `npm install -g @ano-chat/cli` always ships the skill content
   // matching the CLI version, even if `@ano-chat/skills` isn't hoisted

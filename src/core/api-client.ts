@@ -7,7 +7,9 @@ import {
   ApiError,
 } from "./errors.js";
 import { ExitCode } from "../cli/types.js";
+import { fetch as undiciFetch } from "undici";
 import { retryFetch, PermanentError } from "../bridge/retry.js";
+import { sharedHttpAgent } from "./http-agent.js";
 
 // ── Response types ────────────────────────────────────────────────
 
@@ -599,12 +601,17 @@ export function createApiClient(auth: ResolvedAuth): AnoApiClient {
     fd.append("file", blob, opts.filename);
     try {
       // No retryFetch — multipart bodies are not safely re-playable
-      // (FormData stream consumption + 25 MB ceiling). One shot.
-      const res = await fetch(`${endpoint}/mcp/upload`, {
+      // (FormData stream consumption + 25 MB ceiling). One shot. Still
+      // route through the keepalive agent so the upload reuses the
+      // daemon's warm TCP+TLS to the API. Use undici's own `fetch`
+      // for the same reason retry.ts does — npm undici Agent is
+      // incompatible with Node's internal undici fetch.
+      const res = (await undiciFetch(`${endpoint}/mcp/upload`, {
         method: "POST",
         headers: authHeader,
         body: fd,
-      });
+        dispatcher: sharedHttpAgent,
+      } as Parameters<typeof undiciFetch>[1])) as Response;
       if (!res.ok) return handleHttpError(res);
       return (await res.json()) as UploadedAttachment;
     } catch (err) {

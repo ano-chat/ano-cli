@@ -1,3 +1,6 @@
+import { fetch as undiciFetch } from "undici";
+import { sharedHttpAgent } from "../core/http-agent.js";
+
 /**
  * Retry-aware fetch.
  *
@@ -72,10 +75,29 @@ export async function retryFetch(
 
   let lastError: Error | undefined;
 
+  // Route every retry-aware fetch through the shared keepalive agent
+  // so the daemon's warm process reuses TCP+TLS across dispatches.
+  // Callers may still pass their own `dispatcher` to override (e.g.
+  // tests stubbing the network); we only set ours if absent.
+  const initWithAgent: RequestInit & { dispatcher?: unknown } = {
+    ...init,
+    dispatcher:
+      (init as { dispatcher?: unknown }).dispatcher ?? sharedHttpAgent,
+  };
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     let res: Response;
     try {
-      res = await fetch(url, init);
+      // Use undici's own fetch — globalThis.fetch in Node binds to
+      // Node's internal (older) undici, which is incompatible with
+      // the npm undici v8 `Agent` we pass via `dispatcher` (interceptor
+      // protocol changed). Mixing them throws `UND_ERR_INVALID_ARG:
+      // invalid onRequestStart method`. Pinning both fetch and Agent
+      // to the same npm undici package fixes it.
+      res = (await undiciFetch(
+        url,
+        initWithAgent as Parameters<typeof undiciFetch>[1],
+      )) as Response;
     } catch (err) {
       // Network error (ECONNREFUSED, ETIMEDOUT, etc.)
       lastError = err instanceof Error ? err : new Error(String(err));

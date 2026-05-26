@@ -43,6 +43,8 @@ import {
 } from "./protocol.js";
 import { createProgram } from "../cli/root.js";
 import { registerAllCommands } from "../cli/register.js";
+import { loadGlobalCredentials, loadProjectConfig } from "../core/config.js";
+import { prewarmConnection } from "../core/http-agent.js";
 
 declare const __VERSION__: string;
 const DAEMON_CLI_VERSION =
@@ -147,6 +149,39 @@ async function dispatch(req: ExecRequest): Promise<DispatchResult> {
     stderr: stderrBuf.join(""),
     exitCode,
   };
+}
+
+/**
+ * Resolve the user's default Ano endpoint and open a single TCP+TLS
+ * connection to it so the daemon's first real dispatch skips handshake
+ * latency. Best effort — any failure is silently ignored.
+ *
+ * Resolution chain mirrors `resolveAuth` lightly: project config →
+ * default profile in global credentials. `ANO_ENDPOINT` env override
+ * is also honored. If nothing resolves, we skip — there's nothing to
+ * warm up, and the user will see normal cold-start latency on the
+ * first call.
+ */
+async function prewarmDefaultEndpoint(): Promise<void> {
+  let endpoint: string | undefined;
+  try {
+    if (process.env.ANO_ENDPOINT) {
+      endpoint = process.env.ANO_ENDPOINT;
+    } else {
+      const project = loadProjectConfig();
+      if (project?.endpoint) {
+        endpoint = project.endpoint;
+      } else {
+        const creds = loadGlobalCredentials();
+        const profile = creds?.profiles.default;
+        if (profile?.endpoint) endpoint = profile.endpoint;
+      }
+    }
+  } catch {
+    // ignore — pre-warm is best effort
+  }
+  if (!endpoint) return;
+  await prewarmConnection(endpoint);
 }
 
 /**
@@ -307,6 +342,11 @@ export interface DaemonStartOptions {
    */
   dispatchTimeoutMs?: number;
   /**
+   * Skip the post-listen endpoint pre-warm. Used by tests so they
+   * don't hit the network during daemon startup.
+   */
+  skipPrewarm?: boolean;
+  /**
    * INTERNAL — replace the dispatch function. Only used by tests to
    * simulate a hung command without touching the real command tree. Do
    * not use from production code.
@@ -392,6 +432,14 @@ export function startDaemon(opts: DaemonStartOptions = {}): {
     }
     writeFileSync(pidPath, String(process.pid), { mode: 0o600 });
     ctx.bumpIdle();
+    // Fire-and-forget: open a TLS/TCP connection to the resolved
+    // default endpoint so the first real dispatch doesn't pay
+    // handshake latency. ~200–300 ms saving against prod-regional
+    // (transatlantic to Hetzner); ~50 ms staging; negligible local.
+    // Skipped in tests where prewarm would just be noise.
+    if (!opts.skipPrewarm) {
+      void prewarmDefaultEndpoint();
+    }
   });
   ctx.server.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE") {
