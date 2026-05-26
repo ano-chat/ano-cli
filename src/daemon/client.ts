@@ -53,31 +53,33 @@ const CONNECT_TIMEOUT_MS = 150;
  */
 const PING_TIMEOUT_MS = 1000;
 /**
- * Exec response deadline. The daemon is a best-effort accelerator over
- * the ~140 ms cold-Node startup; if it can't beat that comfortably it
- * isn't earning its keep. Crossing this deadline trips the circuit
- * breaker (see `tripCircuitBreaker`) so the next call bypasses the
- * daemon entirely.
+ * Exec response deadline. Crossing it trips the circuit breaker (see
+ * `tripCircuitBreaker`) so the next call bypasses the daemon entirely
+ * for the cooldown window.
  *
- * 3000 ms picked deliberately wide for v2.21 (was 800 ms in v2.20):
+ * 5000 ms is the third iteration on this number:
  *
- *  - Healthy local-daemon p99 is ~50 ms. Cloud-targeted (e.g. default
- *    profile pointing at api-us.ano.dev from a transatlantic user) is
- *    ~500 ms steady, with cold first-dispatch + handshake spiking
- *    700-1500 ms. The 800 ms ceiling tripped on normal-slow cloud calls,
- *    killing the daemon and locking the breaker for 10 min — which
- *    looked exactly like "the daemon mysteriously doesn't work." That
- *    was a worse failure mode than the 10 s stall it was meant to fix.
- *  - 3000 ms is still well below the original 10 s pathological hang
- *    AND below the daemon's own per-dispatch timeout (60 s). The
- *    breaker still catches truly wedged daemons; it just stops catching
- *    "normal cloud network".
- *  - Worst case becomes 3 s × once per 10-min cooldown (was 800 ms ×
- *    once before this change). For a structurally-wedged daemon, the
- *    user pays 3 s the first time, then ~140 ms per call until the
- *    cooldown reopens.
+ *  - v2.20: 800 ms. Tuned for local-daemon p99 (~50 ms). Tripped on
+ *    normal cloud calls; user experience was "the daemon mysteriously
+ *    doesn't work."
+ *  - v2.21.1: 3000 ms. Better, but still tripped on first-dispatch
+ *    cold-start to a transatlantic origin (measured 3.6 s on the
+ *    Hetzner Germany endpoint from a US client — DNS + TLS + module
+ *    load + first HTTP round trip).
+ *  - v2.21.2 (this commit): 5000 ms. Comfortable headroom for the
+ *    worst cold-cloud case while still 2× below the original 10 s
+ *    pathological hang. The breaker still catches a daemon that
+ *    truly never replies; it just stops catching "first request after
+ *    a long idle, transatlantic."
+ *
+ * Worst case becomes 5 s × once per 10-min cooldown window. After the
+ * first slow call, subsequent calls in the same session either go
+ * direct (~150 ms cold Node, no daemon benefit) or — if the daemon
+ * is still alive — hit the warm path (~30 ms cache hit). The 5 s
+ * one-off is recoverable; the v2.20 800-ms-trips-on-cold pattern
+ * locked users out for 10 min, which was the worse failure mode.
  */
-const RESPONSE_TIMEOUT_MS = 3000;
+const RESPONSE_TIMEOUT_MS = 5000;
 /**
  * Circuit-breaker cooldown. After a single slow response (or other
  * daemon-side fault that suggests the warm process is in a bad state),
