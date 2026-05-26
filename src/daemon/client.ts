@@ -57,29 +57,34 @@ const PING_TIMEOUT_MS = 1000;
  * `tripCircuitBreaker`) so the next call bypasses the daemon entirely
  * for the cooldown window.
  *
- * 5000 ms is the third iteration on this number:
+ * Sized at 10 s. The history of this value tells the story:
  *
- *  - v2.20: 800 ms. Tuned for local-daemon p99 (~50 ms). Tripped on
- *    normal cloud calls; user experience was "the daemon mysteriously
- *    doesn't work."
- *  - v2.21.1: 3000 ms. Better, but still tripped on first-dispatch
- *    cold-start to a transatlantic origin (measured 3.6 s on the
- *    Hetzner Germany endpoint from a US client — DNS + TLS + module
- *    load + first HTTP round trip).
- *  - v2.21.2 (this commit): 5000 ms. Comfortable headroom for the
- *    worst cold-cloud case while still 2× below the original 10 s
- *    pathological hang. The breaker still catches a daemon that
- *    truly never replies; it just stops catching "first request after
- *    a long idle, transatlantic."
+ *  - v2.20.0: 800 ms. Sized for local-daemon p99 (~50 ms). Tripped
+ *    on normal cloud calls; UX was "the daemon mysteriously doesn't
+ *    work" because the breaker locked for 10 min after one slow call.
+ *  - v2.21.1: 3000 ms. Tripped on first-dispatch cold-start to a
+ *    transatlantic origin (measured 3.6 s).
+ *  - v2.21.2: 5000 ms. Tripped on the ABSOLUTE worst cold case
+ *    (daemon just spawned, breaker just cleared, no prior TLS to
+ *    api-us, module tree not loaded yet — 5.5 s observed).
+ *  - v2.21.3 (this commit): 10 000 ms. The original v2.19 value —
+ *    in retrospect, that value was right for cloud-target daemons.
+ *    The v2.20 tightening was a misdiagnosis: the problem wasn't the
+ *    timeout, it was the LACK of a breaker. With the breaker in place,
+ *    10 s on a wedged daemon happens at most once per 10-min cooldown
+ *    (and the daemon is force-killed so subsequent calls go direct).
  *
- * Worst case becomes 5 s × once per 10-min cooldown window. After the
- * first slow call, subsequent calls in the same session either go
- * direct (~150 ms cold Node, no daemon benefit) or — if the daemon
- * is still alive — hit the warm path (~30 ms cache hit). The 5 s
- * one-off is recoverable; the v2.20 800-ms-trips-on-cold pattern
- * locked users out for 10 min, which was the worse failure mode.
+ * The job of this timeout: catch a daemon that has completely stopped
+ * replying (wedged dispatch loop, crashed mid-dispatch, etc). NOT to
+ * declare "the daemon is slow." Cold-start to a transatlantic origin
+ * is allowed to be slow.
+ *
+ * Worst case becomes 10 s × once per 10-min cooldown window, then
+ * direct execution (~150 ms cold Node) for the cooldown. That's the
+ * v2.19 behavior; we're keeping the v2.20 breaker safety net but
+ * restoring the v2.19 timeout sensitivity.
  */
-const RESPONSE_TIMEOUT_MS = 5000;
+const RESPONSE_TIMEOUT_MS = 10_000;
 /**
  * Circuit-breaker cooldown. After a single slow response (or other
  * daemon-side fault that suggests the warm process is in a bad state),
