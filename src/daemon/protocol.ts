@@ -103,6 +103,18 @@ export interface PingResponse {
   v: number;
   /** CLI version bundled into this daemon process. */
   cliVersion: string;
+  /**
+   * In-process response-cache stats. Optional so older daemons can omit
+   * it without breaking the v1 protocol — newer clients render the
+   * field if present. Resets on daemon restart.
+   */
+  cache?: {
+    hits: number;
+    misses: number;
+    invalidations: number;
+    origins: number;
+    entries: number;
+  };
 }
 
 export interface DaemonError {

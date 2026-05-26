@@ -69,6 +69,38 @@ const TTL_MS = 5_000;
 const cacheByOrigin = new Map<string, OriginCache>();
 
 /**
+ * Cumulative counters for `ano daemon status` and ANO_DEBUG_CACHE
+ * telemetry. Process-local — reset when the daemon restarts.
+ */
+interface CacheStats {
+  hits: number;
+  misses: number;
+  invalidations: number;
+}
+const stats: CacheStats = { hits: 0, misses: 0, invalidations: 0 };
+
+export function cacheStats(): CacheStats & {
+  origins: number;
+  entries: number;
+} {
+  let entries = 0;
+  for (const oc of cacheByOrigin.values()) entries += oc.entries.size;
+  return {
+    hits: stats.hits,
+    misses: stats.misses,
+    invalidations: stats.invalidations,
+    origins: cacheByOrigin.size,
+    entries,
+  };
+}
+
+export function _resetCacheStatsForTests(): void {
+  stats.hits = 0;
+  stats.misses = 0;
+  stats.invalidations = 0;
+}
+
+/**
  * Check the cache for a hit. Returns undefined on miss or expired
  * entry. Caller is responsible for synthesizing a Response from the
  * cached payload (we don't return a Response directly so the cache
@@ -84,14 +116,22 @@ export function cacheGet(
   const { origin, path } = parsed;
   if (!READ_ALLOWLIST.has(path)) return undefined;
   const oc = cacheByOrigin.get(origin);
-  if (!oc) return undefined;
-  const key = makeKey(path, authHeader, bodyJson);
-  const entry = oc.entries.get(key);
-  if (!entry) return undefined;
-  if (entry.expiresAt <= Date.now()) {
-    oc.entries.delete(key);
+  if (!oc) {
+    stats.misses++;
     return undefined;
   }
+  const key = makeKey(path, authHeader, bodyJson);
+  const entry = oc.entries.get(key);
+  if (!entry) {
+    stats.misses++;
+    return undefined;
+  }
+  if (entry.expiresAt <= Date.now()) {
+    oc.entries.delete(key);
+    stats.misses++;
+    return undefined;
+  }
+  stats.hits++;
   return entry;
 }
 
@@ -136,7 +176,7 @@ export function cacheSet(
 export function cacheInvalidateOrigin(url: string): void {
   const parsed = parseUrl(url);
   if (!parsed) return;
-  cacheByOrigin.delete(parsed.origin);
+  if (cacheByOrigin.delete(parsed.origin)) stats.invalidations++;
 }
 
 /** Flush everything. Used by tests and `ano daemon stop` shutdown. */

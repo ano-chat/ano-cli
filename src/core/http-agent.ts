@@ -45,12 +45,28 @@ import { Agent, fetch as undiciFetch } from "undici";
  *   reuse" — it's "no reuse at all"). Verified by `tests/scripts/
  *   keepalive-bench.mjs`: pipelining=0 opens N sockets for N calls;
  *   pipelining=1 opens 1 socket and reuses.
+ * - allowH2: true — opt into HTTP/2 when the server's ALPN negotiates
+ *   it. Ano's regional API (api-us / api-eu) and staging all serve
+ *   H2 (verified via `curl -I`). Falls back to HTTP/1.1 transparently
+ *   when the server doesn't support it (localhost dev server, tests).
+ *
+ *   Caveat: with `connections: 32` the agent is free to open multiple
+ *   parallel connections even when H2 multiplexing would let one
+ *   suffice. Forcing single-connection multiplexing would require
+ *   `connections: 1`, which would hurt H1-fallback workloads (the
+ *   one connection becomes a bottleneck). Since the daemon dispatches
+ *   commands serially, the practical benefit of H2 here is small —
+ *   the keepalive socket reuse already covers sequential calls. We
+ *   set the flag because it's free when the server speaks H2 and
+ *   future-proofs us against any concurrent dispatch path that lands
+ *   later (e.g., a parallel `ano workspaces sync` doing many reads).
  */
 export const sharedHttpAgent = new Agent({
   keepAliveTimeout: 60_000,
   keepAliveMaxTimeout: 600_000,
   connections: 32,
   pipelining: 1,
+  allowH2: true,
 });
 
 /**

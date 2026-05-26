@@ -118,13 +118,21 @@ export async function retryFetch(
   // be fresh). See src/core/response-cache.ts for the design.
   const bodyJson = typeof init.body === "string" ? init.body : "";
   const authHeader = extractAuthHeader(init.headers);
+  const cacheStart = debugCacheEnabled() ? performance.now() : 0;
   const cached = cacheGet(url, authHeader, bodyJson);
   if (cached) {
+    if (debugCacheEnabled()) {
+      const elapsed = (performance.now() - cacheStart).toFixed(2);
+      process.stderr.write(
+        `[ano:cache] HIT  ${shortUrl(url)} (${cached.body.length}B) +${elapsed}ms\n`,
+      );
+    }
     return new Response(cached.body, {
       status: cached.status,
       headers: cached.headers,
     });
   }
+  const requestStart = debugCacheEnabled() ? performance.now() : 0;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     let res: Response;
@@ -168,10 +176,22 @@ export async function retryFetch(
           headers,
           body: text,
         });
+        if (debugCacheEnabled()) {
+          const elapsed = (performance.now() - requestStart).toFixed(2);
+          process.stderr.write(
+            `[ano:cache] MISS ${shortUrl(url)} (${text.length}B) +${elapsed}ms — cached\n`,
+          );
+        }
         return new Response(text, { status: res.status, headers });
       }
       // Write path — clear cache for this origin.
       cacheInvalidateOrigin(url);
+      if (debugCacheEnabled()) {
+        const elapsed = (performance.now() - requestStart).toFixed(2);
+        process.stderr.write(
+          `[ano:cache] WRITE ${shortUrl(url)} +${elapsed}ms — origin cache invalidated\n`,
+        );
+      }
       return res;
     }
 
@@ -220,6 +240,44 @@ export async function retryFetch(
   }
 
   throw lastError ?? new Error("retryFetch: unexpected end");
+}
+
+/**
+ * ANO_DEBUG_CACHE=1 turns on stderr-logging of every cache hit/miss/write
+ * with timing. Useful for verifying the cache is doing what you think
+ * it is in the wild without instrumenting per-command. Off by default.
+ *
+ * Read fresh on every call rather than memoized: the daemon process
+ * outlives many client invocations, and each can have different env
+ * (one shell sets ANO_DEBUG_CACHE=1, the next doesn't). A memo would
+ * lock in the first observed value. Cost of fresh read is ~100ns —
+ * trivial vs the network round trip we're observing.
+ */
+function debugCacheEnabled(): boolean {
+  const v = process.env.ANO_DEBUG_CACHE;
+  return v === "1" || v === "true";
+}
+
+/**
+ * Compact URL for log lines — drops the scheme + host (almost always
+ * the same in a session) and shows only the path. Falls back to the
+ * full URL if it doesn't parse.
+ */
+function shortUrl(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * TEST-ONLY. Used to be a memo-reset hook; the memo was removed (see
+ * `debugCacheEnabled`) so this is now a no-op. Kept exported so test
+ * files that already call it don't need a follow-up cleanup pass.
+ */
+export function _resetDebugCacheForTests(): void {
+  // no-op
 }
 
 /** Extract the Authorization header value from RequestInit headers. */

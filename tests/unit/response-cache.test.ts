@@ -11,19 +11,23 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  _resetCacheStatsForTests,
   cacheClear,
   cacheGet,
   cacheInvalidateOrigin,
   cacheSet,
   cacheSize,
+  cacheStats,
 } from "../../src/core/response-cache.js";
 
 beforeEach(() => {
   cacheClear();
+  _resetCacheStatsForTests();
 });
 
 afterEach(() => {
   cacheClear();
+  _resetCacheStatsForTests();
   vi.restoreAllMocks();
 });
 
@@ -142,6 +146,80 @@ describe("response-cache core", () => {
     cacheInvalidateOrigin("https://api-a.example/mcp/send_message");
     expect(cacheSize("https://api-a.example/")).toBe(0);
     expect(cacheSize("https://api-b.example/")).toBe(1);
+  });
+});
+
+describe("cacheStats", () => {
+  it("starts at zero with no entries", () => {
+    expect(cacheStats()).toEqual({
+      hits: 0,
+      misses: 0,
+      invalidations: 0,
+      origins: 0,
+      entries: 0,
+    });
+  });
+
+  it("counts a miss when no entry exists", () => {
+    cacheGet("https://api.example/mcp/list_channels", "Bearer x", "{}");
+    const s = cacheStats();
+    expect(s.hits).toBe(0);
+    expect(s.misses).toBe(1);
+  });
+
+  it("counts a hit on a fresh entry", () => {
+    const url = "https://api.example/mcp/list_channels";
+    cacheSet(url, "Bearer x", "{}", {
+      status: 200,
+      headers: {},
+      body: '{"channels":[]}',
+    });
+    cacheGet(url, "Bearer x", "{}");
+    const s = cacheStats();
+    expect(s.hits).toBe(1);
+    expect(s.misses).toBe(0);
+    expect(s.entries).toBe(1);
+    expect(s.origins).toBe(1);
+  });
+
+  it("counts an invalidation when a write clears an origin", () => {
+    const url = "https://api.example/mcp/list_channels";
+    cacheSet(url, "Bearer x", "{}", {
+      status: 200,
+      headers: {},
+      body: '{"channels":[]}',
+    });
+    cacheInvalidateOrigin("https://api.example/mcp/send_message");
+    const s = cacheStats();
+    expect(s.invalidations).toBe(1);
+    expect(s.entries).toBe(0);
+  });
+
+  it("does NOT count an invalidation for an origin that wasn't cached", () => {
+    cacheInvalidateOrigin("https://api.example/mcp/send_message");
+    expect(cacheStats().invalidations).toBe(0);
+  });
+
+  it("counts an expired-entry get as a miss", () => {
+    const url = "https://api.example/mcp/list_channels";
+    cacheSet(url, "Bearer x", "{}", {
+      status: 200,
+      headers: {},
+      body: "{}",
+    });
+    // hit
+    cacheGet(url, "Bearer x", "{}");
+    expect(cacheStats().hits).toBe(1);
+
+    // expire it via clock travel
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(Date.now() + 6_000);
+      cacheGet(url, "Bearer x", "{}");
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(cacheStats().misses).toBe(1);
   });
 });
 
