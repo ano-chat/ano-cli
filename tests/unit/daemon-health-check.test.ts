@@ -80,7 +80,12 @@ describe("ensureHealthy", () => {
   });
 
   it("returns healthy against a real running daemon", async () => {
-    const handle = startDaemon({ socketPath, pidPath, idleMs: 0 });
+    const handle = startDaemon({
+      socketPath,
+      pidPath,
+      idleMs: 0,
+      skipPrewarm: true,
+    });
     stopDaemon = handle.shutdown;
     expect(await ensureHealthy(socketPath)).toBe("healthy");
   }, 5000);

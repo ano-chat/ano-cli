@@ -15,18 +15,21 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:keepalive": "node tests/scripts/keepalive-bench.mjs",
+    "test:cache": "node tests/scripts/cache-bench.mjs",
     "lint": "prettier --check .",
     "format": "prettier --write .",
     "surface:update": "tsx snapshots/update-surface.ts",
     "surface:check": "tsx snapshots/update-surface.ts --check",
-    "ci": "npm run typecheck && npm run test && npm run build"
+    "ci": "npm run typecheck && npm run test && npm run test:keepalive && npm run test:cache && npm run build"
   },
   "publishConfig": {
     "access": "public"
   },
   "dependencies": {
     "@ano-chat/skills": ">=0.3.1",
-    "commander": "^13.1.0"
+    "commander": "^13.1.0",
+    "undici": "^7.26.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.17",

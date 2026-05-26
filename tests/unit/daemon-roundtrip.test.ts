@@ -32,7 +32,12 @@ beforeAll(() => {
   const dir = mkdtempSync(join(tmpdir(), "ano-daemon-test-"));
   socketPath = join(dir, "test.sock");
   pidPath = join(dir, "test.pid");
-  const handle = startDaemon({ socketPath, pidPath, idleMs: 0 });
+  const handle = startDaemon({
+    socketPath,
+    pidPath,
+    idleMs: 0,
+    skipPrewarm: true,
+  });
   stop = handle.shutdown;
 });
 

@@ -1,3 +1,33 @@
+import { fetch as undiciFetch } from "undici";
+import { sharedHttpAgent } from "../core/http-agent.js";
+import {
+  cacheGet,
+  cacheInvalidateOrigin,
+  cacheSet,
+} from "../core/response-cache.js";
+
+/**
+ * Indirection point for tests. Production code always uses undici's
+ * fetch (must, because the keepalive Agent is from npm undici v8 and
+ * incompatible with Node's internal undici behind globalThis.fetch).
+ * Tests swap this for a vi.fn() via `_setFetchImplForTests` so they
+ * can assert call counts and return canned responses without standing
+ * up a real network — vitest's ESM module isolation blocks the more
+ * obvious vi.spyOn(undici, "fetch") path.
+ */
+type FetchLike = (
+  url: string,
+  init?: Parameters<typeof undiciFetch>[1],
+) => Promise<Response>;
+let fetchImpl: FetchLike = undiciFetch as unknown as FetchLike;
+
+/** TEST-ONLY. Replace the fetch implementation. Restore with the same call passing the original. */
+export function _setFetchImplForTests(f: FetchLike): void {
+  fetchImpl = f;
+}
+export const _originalFetchImpl: FetchLike =
+  undiciFetch as unknown as FetchLike;
+
 /**
  * Retry-aware fetch.
  *
@@ -72,10 +102,43 @@ export async function retryFetch(
 
   let lastError: Error | undefined;
 
+  // Route every retry-aware fetch through the shared keepalive agent
+  // so the daemon's warm process reuses TCP+TLS across dispatches.
+  // Callers may still pass their own `dispatcher` to override (e.g.
+  // tests stubbing the network); we only set ours if absent.
+  const initWithAgent: RequestInit & { dispatcher?: unknown } = {
+    ...init,
+    dispatcher:
+      (init as { dispatcher?: unknown }).dispatcher ?? sharedHttpAgent,
+  };
+
+  // Cache layer: allowlisted /mcp/list_* style reads may be served
+  // from a 5s TTL in-process cache. Anything not in the read allowlist
+  // invalidates the origin's cache (post-mutation reads should always
+  // be fresh). See src/core/response-cache.ts for the design.
+  const bodyJson = typeof init.body === "string" ? init.body : "";
+  const authHeader = extractAuthHeader(init.headers);
+  const cached = cacheGet(url, authHeader, bodyJson);
+  if (cached) {
+    return new Response(cached.body, {
+      status: cached.status,
+      headers: cached.headers,
+    });
+  }
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     let res: Response;
     try {
-      res = await fetch(url, init);
+      // Use undici's own fetch — globalThis.fetch in Node binds to
+      // Node's internal (older) undici, which is incompatible with
+      // the npm undici v8 `Agent` we pass via `dispatcher` (interceptor
+      // protocol changed). Mixing them throws `UND_ERR_INVALID_ARG:
+      // invalid onRequestStart method`. Pinning both fetch and Agent
+      // to the same npm undici package fixes it.
+      res = await fetchImpl(
+        url,
+        initWithAgent as Parameters<typeof undiciFetch>[1],
+      );
     } catch (err) {
       // Network error (ECONNREFUSED, ETIMEDOUT, etc.)
       lastError = err instanceof Error ? err : new Error(String(err));
@@ -87,7 +150,30 @@ export async function retryFetch(
       throw lastError;
     }
 
-    if (res.ok) return res;
+    if (res.ok) {
+      // Branch on cacheability. Reads in the allowlist: clone the
+      // body so we can both store it and return a working Response
+      // to the caller (Response bodies are single-use). Writes:
+      // invalidate the origin's cache so the next read after the
+      // mutation re-fetches fresh.
+      const isRead = isAllowedRead(url);
+      if (isRead) {
+        const text = await res.text();
+        const headers: Record<string, string> = {};
+        res.headers.forEach((v, k) => {
+          headers[k] = v;
+        });
+        cacheSet(url, authHeader, bodyJson, {
+          status: res.status,
+          headers,
+          body: text,
+        });
+        return new Response(text, { status: res.status, headers });
+      }
+      // Write path — clear cache for this origin.
+      cacheInvalidateOrigin(url);
+      return res;
+    }
 
     if (res.status === 429) {
       // Default: return the 429 response so the caller throws a
@@ -135,3 +221,51 @@ export async function retryFetch(
 
   throw lastError ?? new Error("retryFetch: unexpected end");
 }
+
+/** Extract the Authorization header value from RequestInit headers. */
+function extractAuthHeader(
+  headers: HeadersInit | undefined,
+): string | undefined {
+  if (!headers) return undefined;
+  if (headers instanceof Headers)
+    return headers.get("Authorization") ?? undefined;
+  if (Array.isArray(headers)) {
+    for (const [k, v] of headers) {
+      if (k.toLowerCase() === "authorization") return v;
+    }
+    return undefined;
+  }
+  // Plain object — case-insensitive lookup.
+  for (const [k, v] of Object.entries(headers as Record<string, string>)) {
+    if (k.toLowerCase() === "authorization") return v;
+  }
+  return undefined;
+}
+
+/**
+ * Quick check: does this URL fall in the cache's read allowlist? The
+ * `response-cache` module also checks before storing, but doing it
+ * here avoids paying for `res.text()` on the write path.
+ */
+function isAllowedRead(url: string): boolean {
+  try {
+    const u = new URL(url);
+    if (!u.pathname.startsWith("/mcp/")) return false;
+    const sub = u.pathname.substring(4); // strip /mcp prefix
+    return ALLOWED_READS.has(sub);
+  } catch {
+    return false;
+  }
+}
+
+// Mirror src/core/response-cache.ts READ_ALLOWLIST — keep in sync.
+// Duplicated here so retry.ts can decide whether to drain `res.text()`
+// (only done on cacheable reads) without importing the cache's
+// internal set.
+const ALLOWED_READS = new Set<string>([
+  "/list_workspaces",
+  "/list_channels",
+  "/list_users",
+  "/list_tables",
+  "/get_table",
+]);
