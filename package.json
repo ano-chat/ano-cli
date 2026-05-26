@@ -40,7 +40,7 @@
     "vitest": "^3.2.1"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "license": "MIT",
   "repository": {
