@@ -469,11 +469,10 @@ function cleanEnv(): Record<string, string> {
 }
 
 function spawnDaemon(): void {
-  const node = process.execPath;
-  const script = process.argv[1]; // dist/index.js when installed
-  if (!script) return;
+  const cmd = resolveDaemonSpawnCommand();
+  if (!cmd) return;
   try {
-    const child = spawn(node, [script, "daemon", "serve"], {
+    const child = spawn(cmd.command, cmd.args, {
       detached: true,
       stdio: "ignore",
       env: cleanEnv(),
@@ -482,4 +481,32 @@ function spawnDaemon(): void {
   } catch {
     // best-effort; user can `ano daemon start` manually
   }
+}
+
+/**
+ * Resolve how to re-spawn the daemon for this runtime.
+ *
+ * Two modes:
+ *   • **Node** — `process.execPath` is `node`, `process.argv[1]` is the
+ *     CLI script (dist/index.js). Spawn re-uses both:
+ *       node /path/to/dist/index.js daemon serve
+ *   • **Bun-compiled** — `process.execPath` IS the standalone binary;
+ *     `process.argv[1]` points into Bun's embedded virtual filesystem
+ *     (`/$bunfs/...`) which isn't useful as a spawn argument. Spawn
+ *     the binary directly with the daemon args:
+ *       /path/to/ano daemon serve
+ *
+ * Detection: `process.versions.bun` is set in both Bun-runtime and
+ * Bun-compiled-binary contexts. Reliable across versions.
+ */
+function resolveDaemonSpawnCommand(): {
+  command: string;
+  args: string[];
+} | null {
+  if (process.versions.bun) {
+    return { command: process.execPath, args: ["daemon", "serve"] };
+  }
+  const script = process.argv[1];
+  if (!script) return null;
+  return { command: process.execPath, args: [script, "daemon", "serve"] };
 }
