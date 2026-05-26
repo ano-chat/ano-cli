@@ -149,6 +149,32 @@ describe("response-cache core", () => {
   });
 });
 
+describe("cached header sanitization (defensive)", () => {
+  // The cache stores the body as already-decoded text. Response-side
+  // headers like `content-length`, `content-encoding`, and
+  // `transfer-encoding` describe the WIRE form and would mislead
+  // consumers reading them from a cached entry. retry.ts strips them
+  // via `cacheableHeaders` before calling `cacheSet` — the cache
+  // module itself stays content-agnostic, which we lock in here.
+
+  it("stores whatever headers the caller provides verbatim", () => {
+    cacheSet("https://api.example/mcp/list_channels", "Bearer x", "{}", {
+      status: 200,
+      headers: { "content-type": "application/json", "x-custom": "value" },
+      body: '{"channels":[]}',
+    });
+    const hit = cacheGet(
+      "https://api.example/mcp/list_channels",
+      "Bearer x",
+      "{}",
+    );
+    expect(hit?.headers).toEqual({
+      "content-type": "application/json",
+      "x-custom": "value",
+    });
+  });
+});
+
 describe("cacheStats", () => {
   it("starts at zero with no entries", () => {
     expect(cacheStats()).toEqual({

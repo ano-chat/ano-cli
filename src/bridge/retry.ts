@@ -167,10 +167,15 @@ export async function retryFetch(
       const isRead = isAllowedRead(url);
       if (isRead) {
         const text = await res.text();
-        const headers: Record<string, string> = {};
-        res.headers.forEach((v, k) => {
-          headers[k] = v;
-        });
+        // `res.text()` already decoded any content-encoding (gzip etc.)
+        // and consumed the chunked-transfer framing. Re-emitting those
+        // headers on a synthesized Response would mislead consumers:
+        // content-length wouldn't match, content-encoding would claim
+        // the body is still gzipped, etc. Strip them — keep only the
+        // headers a consumer might legitimately read from a cached
+        // entry (content-type for parsing). Adding more allowed
+        // headers requires deliberate review.
+        const headers = cacheableHeaders(res.headers);
         cacheSet(url, authHeader, bodyJson, {
           status: res.status,
           headers,
@@ -278,6 +283,25 @@ function shortUrl(url: string): string {
  */
 export function _resetDebugCacheForTests(): void {
   // no-op
+}
+
+/**
+ * Headers safe to store in the cache + replay on synthesized hits.
+ * Allowlisted because everything else is either request-specific
+ * (`x-request-id`, `date`, `set-cookie`) or invalidated by storing the
+ * decoded body (`content-encoding`, `content-length`, `transfer-encoding`).
+ *
+ * The set is deliberately small. Adding entries should require thinking
+ * about: "can a consumer reading this from the cache misinterpret it?"
+ */
+const CACHEABLE_HEADERS = new Set<string>(["content-type"]);
+
+function cacheableHeaders(src: Headers): Record<string, string> {
+  const out: Record<string, string> = {};
+  src.forEach((value, key) => {
+    if (CACHEABLE_HEADERS.has(key.toLowerCase())) out[key] = value;
+  });
+  return out;
 }
 
 /** Extract the Authorization header value from RequestInit headers. */
