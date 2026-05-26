@@ -6,11 +6,30 @@ Ano is team chat with Claude Code and agents built in. The CLI lets developers a
 
 ## Install
 
+Two paths. Pick whichever fits your setup.
+
+### Native binary (recommended — faster, no Node required)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ano-chat/ano-cli/main/scripts/install.sh | bash
+```
+
+Installs `~/.local/bin/ano`. The native binary cold-starts in ~20 ms (vs ~150 ms via Node), which matters for tab completion, shell pipelines, and agent-driven workflows that issue many commands per session. Builds for macOS arm64/x64 and Linux x64/arm64; SHA256-verified against the GitHub Release.
+
+Pin a version or change the install dir:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ano-chat/ano-cli/main/scripts/install.sh | bash -s -- --version v2.21.3
+ANO_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/ano-chat/ano-cli/main/scripts/install.sh | bash
+```
+
+### npm (works everywhere Node 20+ runs, including Windows)
+
 ```bash
 npm install -g @ano-chat/cli
 ```
 
-Requires Node.js 18 or newer.
+Requires Node.js 20 or newer. Both install paths ship the same CLI — same commands, same flags, same daemon.
 
 ## Sign in
 
