@@ -45,6 +45,7 @@ import { createProgram } from "../cli/root.js";
 import { registerAllCommands } from "../cli/register.js";
 import { loadGlobalCredentials, loadProjectConfig } from "../core/config.js";
 import { prewarmConnection } from "../core/http-agent.js";
+import { cacheStats } from "../core/response-cache.js";
 
 declare const __VERSION__: string;
 const DAEMON_CLI_VERSION =
@@ -227,6 +228,7 @@ function attachConnection(socket: Socket, ctx: ServerContext): void {
           startedAt: ctx.startedAt,
           v: PROTOCOL_VERSION,
           cliVersion: DAEMON_CLI_VERSION,
+          cache: cacheStats(),
         });
         continue;
       }

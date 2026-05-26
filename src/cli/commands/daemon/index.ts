@@ -124,6 +124,18 @@ export function registerDaemon(parent: Command): void {
           `cli:     v${r.cliVersion}`,
           `proto:   v${r.v}`,
         ];
+        if (r.cache) {
+          // Daemon reports its own in-process cache stats. Useful for
+          // verifying the cache is doing useful work in the wild.
+          // Hit rate is 0/0 → "—" so a fresh daemon doesn't print
+          // misleading "0%".
+          const total = r.cache.hits + r.cache.misses;
+          const rate =
+            total === 0 ? "—" : `${Math.round((r.cache.hits / total) * 100)}%`;
+          lines.push(
+            `cache:   ${r.cache.entries} entries across ${r.cache.origins} origin${r.cache.origins === 1 ? "" : "s"}; ${r.cache.hits} hits / ${r.cache.misses} misses (${rate}); ${r.cache.invalidations} invalidations`,
+          );
+        }
         if (isCircuitBreakerTripped()) {
           // The daemon answered ping but a prior call tripped the
           // breaker — surface that explicitly so the user knows CLI
