@@ -55,17 +55,29 @@ const PING_TIMEOUT_MS = 1000;
 /**
  * Exec response deadline. The daemon is a best-effort accelerator over
  * the ~140 ms cold-Node startup; if it can't beat that comfortably it
- * isn't earning its keep. 800 ms is ~16× the healthy p99 (~50 ms) and
- * still well below the threshold where a human notices a hang. Crossing
- * it trips the circuit breaker (see `tripCircuitBreaker`) so the next
- * call bypasses the daemon entirely.
+ * isn't earning its keep. Crossing this deadline trips the circuit
+ * breaker (see `tripCircuitBreaker`) so the next call bypasses the
+ * daemon entirely.
  *
- * Pre-2.20: 10 s — a wedged daemon was structurally able to add 10 s of
- * latency to every CLI invocation until a human noticed and ran
- * `ano daemon stop`. That class of failure is what the circuit breaker
- * + tight deadline together rule out.
+ * 3000 ms picked deliberately wide for v2.21 (was 800 ms in v2.20):
+ *
+ *  - Healthy local-daemon p99 is ~50 ms. Cloud-targeted (e.g. default
+ *    profile pointing at api-us.ano.dev from a transatlantic user) is
+ *    ~500 ms steady, with cold first-dispatch + handshake spiking
+ *    700-1500 ms. The 800 ms ceiling tripped on normal-slow cloud calls,
+ *    killing the daemon and locking the breaker for 10 min — which
+ *    looked exactly like "the daemon mysteriously doesn't work." That
+ *    was a worse failure mode than the 10 s stall it was meant to fix.
+ *  - 3000 ms is still well below the original 10 s pathological hang
+ *    AND below the daemon's own per-dispatch timeout (60 s). The
+ *    breaker still catches truly wedged daemons; it just stops catching
+ *    "normal cloud network".
+ *  - Worst case becomes 3 s × once per 10-min cooldown (was 800 ms ×
+ *    once before this change). For a structurally-wedged daemon, the
+ *    user pays 3 s the first time, then ~140 ms per call until the
+ *    cooldown reopens.
  */
-const RESPONSE_TIMEOUT_MS = 800;
+const RESPONSE_TIMEOUT_MS = 3000;
 /**
  * Circuit-breaker cooldown. After a single slow response (or other
  * daemon-side fault that suggests the warm process is in a bad state),
