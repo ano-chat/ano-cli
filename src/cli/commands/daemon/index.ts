@@ -56,9 +56,21 @@ export function registerDaemon(parent: Command): void {
     .command("start")
     .description("Start the daemon detached, return immediately")
     .action(() => {
-      const node = process.execPath;
-      const script = process.argv[1];
-      if (!script) {
+      // Two runtime modes:
+      //   • Node — `process.execPath` is `node`, `argv[1]` is the
+      //     installed CLI script; spawn re-uses both.
+      //   • Bun-compiled — `process.execPath` IS the standalone
+      //     binary; `argv[1]` is Bun's virtual-fs entry which can't be
+      //     passed to spawn. Spawn the binary directly.
+      // `process.versions.bun` is set in both Bun-runtime and
+      // Bun-compiled contexts. Detector matches src/daemon/client.ts.
+      const command = process.execPath;
+      const args = process.versions.bun
+        ? ["daemon", "serve"]
+        : process.argv[1]
+          ? [process.argv[1], "daemon", "serve"]
+          : null;
+      if (!args) {
         process.stderr.write(
           "ano daemon start: cannot resolve daemon script path\n",
         );
@@ -68,7 +80,7 @@ export function registerDaemon(parent: Command): void {
       // the daemon back. Clear any prior circuit-breaker trip so the
       // next CLI call actually tries the daemon instead of bypassing it.
       clearCircuitBreaker();
-      const child = spawn(node, [script, "daemon", "serve"], {
+      const child = spawn(command, args, {
         detached: true,
         stdio: "ignore",
         env: process.env,

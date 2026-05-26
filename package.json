@@ -1,6 +1,6 @@
 {
   "name": "@ano-chat/cli",
-  "version": "2.20.0",
+  "version": "2.21.0",
   "description": "CLI for Ano — team communication for humans and agents",
   "type": "module",
   "bin": {
@@ -12,6 +12,7 @@
   ],
   "scripts": {
     "build": "tsup",
+    "build:native": "node scripts/build-native.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

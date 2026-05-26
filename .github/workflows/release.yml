@@ -82,3 +82,40 @@ jobs:
               exit 0
             }
           echo "✓ MIN_CLI_VERSION=$VERSION set on ano/prd."
+
+  # Native binaries are an opt-in fast-path distribution (~20 ms cold
+  # start vs ~90 ms via npm/node). Compiled with Bun and attached to
+  # the GitHub Release alongside the tag. The npm `publish` job above
+  # is still the primary distribution and gates this one — if publish
+  # fails for any reason, no native binaries get shipped either.
+  #
+  # Single Linux runner cross-compiles all four targets. Bun supports
+  # this via `--target=bun-<os>-<arch>` without needing per-platform
+  # runners.
+  native:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: npm ci
+      - run: npm run build:native
+      - name: Upload binaries to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" \
+            dist-native/ano-darwin-arm64 \
+            dist-native/ano-darwin-x64 \
+            dist-native/ano-linux-x64 \
+            dist-native/ano-linux-arm64 \
+            dist-native/SHA256SUMS \
+            --clobber
