@@ -2,7 +2,7 @@
  * Module-scoped registry for the daemon's active Zero client.
  *
  * The daemon constructs ONE Zero client at startup (when
- * `ANO_USE_ZERO=1`), stashes it here, and dispatched commands look
+ * unless `ANO_DISABLE_ZERO=1`), stashes it here, and dispatched commands look
  * it up on demand. If null, commands fall back to the REST path.
  *
  * Module-level state is the right shape because:
@@ -31,11 +31,16 @@ export function getActiveZeroClient(): ZeroClientHandle | null {
 
 /**
  * Convenience: only returns the handle when Zero is BOTH constructed
- * AND the env-var gate is on. Commands use this as the deciding
+ * AND the user hasn't opted out. Commands use this as the deciding
  * predicate for "Zero path or REST path?".
+ *
+ * Default ON; opt out with `ANO_DISABLE_ZERO=1`. Mirrors
+ * `isZeroEnabled()` in client.ts (same env var) so a user who flips
+ * the gate sees consistent behavior across both bootstrap-time and
+ * read-time checks.
  */
 export function activeZeroOrNull(): ZeroClientHandle | null {
-  const v = process.env.ANO_USE_ZERO;
-  if (v !== "1" && v !== "true") return null;
+  const v = process.env.ANO_DISABLE_ZERO;
+  if (v === "1" || v === "true") return null;
   return active;
 }

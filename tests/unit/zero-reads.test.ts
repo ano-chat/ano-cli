@@ -19,18 +19,21 @@ import {
  * spinning up an actual Zero replica.
  */
 describe("zero-reads — fallback semantics", () => {
-  const origEnv = process.env.ANO_USE_ZERO;
+  const origEnv = process.env.ANO_DISABLE_ZERO;
   beforeEach(() => {
     setActiveZeroClient(null);
+    // Each test resets the env to default (Zero on); tests that
+    // want it off opt in via `process.env.ANO_DISABLE_ZERO = "1"`.
+    delete process.env.ANO_DISABLE_ZERO;
   });
   afterEach(() => {
     setActiveZeroClient(null);
-    if (origEnv === undefined) delete process.env.ANO_USE_ZERO;
-    else process.env.ANO_USE_ZERO = origEnv;
+    if (origEnv === undefined) delete process.env.ANO_DISABLE_ZERO;
+    else process.env.ANO_DISABLE_ZERO = origEnv;
   });
 
-  it("returns null when Zero is disabled (env var off)", async () => {
-    delete process.env.ANO_USE_ZERO;
+  it("returns null when Zero is disabled via ANO_DISABLE_ZERO=1", async () => {
+    process.env.ANO_DISABLE_ZERO = "1";
     expect(await listChannelsViaZero({})).toBeNull();
     expect(await listUsersViaZero({ workspace_id: "w" })).toBeNull();
     expect(await readMessagesViaZero({ channel_id: "c" })).toBeNull();
@@ -38,13 +41,13 @@ describe("zero-reads — fallback semantics", () => {
   });
 
   it("returns null when no active client is registered (Zero on but not bootstrapped)", async () => {
-    process.env.ANO_USE_ZERO = "1";
+    // default (Zero on) — beforeEach() already unset ANO_DISABLE_ZERO.
     expect(getActiveZeroClient()).toBeNull();
     expect(await listChannelsViaZero({})).toBeNull();
   });
 
   it("returns null when the underlying query throws", async () => {
-    process.env.ANO_USE_ZERO = "1";
+    // Zero default-on; beforeEach already unset ANO_DISABLE_ZERO.
     setActiveZeroClient({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       zero: {
@@ -70,7 +73,7 @@ describe("zero-reads — fallback semantics", () => {
   });
 
   it("returns null on listUsersViaZero without workspace_id (Zero requires scope)", async () => {
-    process.env.ANO_USE_ZERO = "1";
+    // Zero default-on; beforeEach already unset ANO_DISABLE_ZERO.
     // Even with an active client, listUsers needs a workspace_id.
     setActiveZeroClient({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -87,7 +90,7 @@ describe("zero-reads — fallback semantics", () => {
   });
 
   it("returns null when the query promise rejects asynchronously (no unhandled rejection)", async () => {
-    process.env.ANO_USE_ZERO = "1";
+    // Zero default-on; beforeEach already unset ANO_DISABLE_ZERO.
     // Build a chain whose `.run()` rejects after a microtask.
     const rejectingChain = makeChainStub([]);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -123,7 +126,7 @@ describe("zero-reads — fallback semantics", () => {
   });
 
   it("returns rows shaped like REST when query resolves", async () => {
-    process.env.ANO_USE_ZERO = "1";
+    // Zero default-on; beforeEach already unset ANO_DISABLE_ZERO.
     // Mock a Zero query chain that returns three channels.
     const fakeQuery = makeChainStub([
       {

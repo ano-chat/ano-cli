@@ -20,14 +20,24 @@ import {
   cacheStats,
 } from "../../src/core/response-cache.js";
 
+// These tests exercise the cache mechanism itself, so they need the
+// Zero carve-out (introduced in v2.23.0 for /list_channels +
+// /list_users) suppressed — otherwise the cache would correctly
+// refuse to serve those paths and the assertions about
+// caching/invalidation would fail. Opt out of Zero via the v2.23.0
+// gate; restore on teardown.
+const origDisableZero = process.env.ANO_DISABLE_ZERO;
 beforeEach(() => {
   cacheClear();
   _resetCacheStatsForTests();
+  process.env.ANO_DISABLE_ZERO = "1";
 });
 
 afterEach(() => {
   cacheClear();
   _resetCacheStatsForTests();
+  if (origDisableZero === undefined) delete process.env.ANO_DISABLE_ZERO;
+  else process.env.ANO_DISABLE_ZERO = origDisableZero;
   vi.restoreAllMocks();
 });
 

@@ -7,10 +7,10 @@
  * `sync-us.ano.dev` (or `sync-eu.ano.dev`) origin maintains real-time
  * freshness.
  *
- * Feature gate: this only runs when ANO_USE_ZERO=1. Until that flag
- * defaults on (probably v2.23.x after staging soak), the CLI's
- * behavior is unchanged — daemon doesn't construct Zero, all commands
- * go through the existing REST + cache path.
+ * Feature gate: default ON in v2.23.0. Opt out with
+ * `ANO_DISABLE_ZERO=1`. When Zero's mint endpoint isn't reachable
+ * (e.g. user pointed at prod before Phase 1 has shipped there),
+ * bootstrap fails silently and every command falls back to REST.
  *
  * Auth flow:
  *   - Mint a fresh JWT (via /api/cli/zero-jwt) BEFORE constructing
@@ -186,13 +186,25 @@ export async function createZeroClient(
 }
 
 /**
- * Whether to construct the Zero client at all. Gated by env var so
- * we can ship the scaffold without changing user-facing behavior
- * until we're ready.
+ * Whether to construct the Zero client at all.
+ *
+ * Default ON. Opt out with `ANO_DISABLE_ZERO=1` (or `=true`). The
+ * env var is checked at daemon startup; restart the daemon after
+ * setting it.
+ *
+ * Safe to default on because:
+ *   - If Zero's JWT mint endpoint isn't reachable (e.g. user is
+ *     pointed at prod and `/api/cli/zero-jwt` hasn't shipped there
+ *     yet), bootstrap fails silently and every command falls back
+ *     to REST — identical behavior to pre-v2.23.0.
+ *   - If Zero connects but a query/mutation errors, the helper
+ *     returns null and falls back to REST.
+ *   - Bootstrap is wrapped in `.catch(() => {})` so it can't crash
+ *     the daemon.
  */
 export function isZeroEnabled(): boolean {
-  const v = process.env.ANO_USE_ZERO;
-  return v === "1" || v === "true";
+  const v = process.env.ANO_DISABLE_ZERO;
+  return !(v === "1" || v === "true");
 }
 
 /**

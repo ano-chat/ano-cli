@@ -170,7 +170,7 @@ async function dispatch(req: ExecRequest): Promise<DispatchResult> {
  * first call.
  */
 /**
- * Bootstrap a Zero client for the daemon if `ANO_USE_ZERO=1`. Reads
+ * Bootstrap a Zero client for the daemon (unless `ANO_DISABLE_ZERO=1`). Reads
  * the user's default profile (key + endpoint), derives the regional
  * sync URL, mints a JWT via `/api/cli/zero-jwt`, and stashes the
  * resulting handle in the module-scoped active-client registry.

@@ -150,11 +150,17 @@ export function registerDaemon(parent: Command): void {
                   : `${(sizeBytes / 1024 / 1024).toFixed(1)} MB`;
           lines.push(`zero:    ${r.zero.status} (replica: ${sizeStr})`);
         } else {
-          // Zero is off. Surface the opt-in hint once so users know
-          // about the fast path. (Once Zero defaults on, this branch
-          // means "Zero failed to bootstrap" and the hint changes.)
+          // Zero is off. Either the user opted out (ANO_DISABLE_ZERO)
+          // or bootstrap silently failed (mint endpoint unreachable,
+          // no default profile, etc.). Surface a hint so users know
+          // they're on the slow path.
+          const optedOut =
+            process.env.ANO_DISABLE_ZERO === "1" ||
+            process.env.ANO_DISABLE_ZERO === "true";
           lines.push(
-            `zero:    off (set \`ANO_USE_ZERO=1\` + restart daemon for ~10× faster reads)`,
+            optedOut
+              ? `zero:    off (ANO_DISABLE_ZERO is set; unset + restart daemon to re-enable)`
+              : `zero:    off (bootstrap failed — mint endpoint unreachable from your endpoint?)`,
           );
         }
         if (isCircuitBreakerTripped()) {
