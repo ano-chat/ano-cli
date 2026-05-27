@@ -149,6 +149,13 @@ export function registerDaemon(parent: Command): void {
                   ? `${Math.round(sizeBytes / 1024)} KB`
                   : `${(sizeBytes / 1024 / 1024).toFixed(1)} MB`;
           lines.push(`zero:    ${r.zero.status} (replica: ${sizeStr})`);
+        } else {
+          // Zero is off. Surface the opt-in hint once so users know
+          // about the fast path. (Once Zero defaults on, this branch
+          // means "Zero failed to bootstrap" and the hint changes.)
+          lines.push(
+            `zero:    off (set \`ANO_USE_ZERO=1\` + restart daemon for ~10× faster reads)`,
+          );
         }
         if (isCircuitBreakerTripped()) {
           // The daemon answered ping but a prior call tripped the
