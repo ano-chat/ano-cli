@@ -23,6 +23,7 @@
  * over-aggressively fall back to REST during normal latency
  * spikes.
  */
+import { randomUUID } from "node:crypto";
 import { activeZeroOrNull } from "./active-client.js";
 
 const ZERO_WRITE_TIMEOUT_MS = 5_000;
@@ -102,6 +103,98 @@ export async function archiveChannelViaZero(opts: {
     // Synchronous throw from constructing the mutation (e.g. Zero
     // hasn't fully initialized yet). Treat as miss; caller falls
     // back to REST.
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/**
+ * Remove a user from a channel via Zero. Mirrors
+ * `apiClient.channelMemberRemove({channel_id, user_id})`.
+ *
+ * Two-step: (1) look up the `channel_members` row id via the local
+ * Zero replica, (2) call the soft-delete mutator. Both steps fail
+ * gracefully — caller falls back to REST.
+ *
+ * Note: this REQUIRES the channel_members row to exist in the
+ * local replica. If it doesn't (e.g. fresh daemon hasn't synced
+ * far enough), return null and let REST handle it. We don't fabricate
+ * an id — the server would reject a guess.
+ */
+export async function removeChannelMemberViaZero(opts: {
+  channel_id: string;
+  user_id: string;
+}): Promise<{ ok: true } | { ok: false; error: string } | null> {
+  const handle = activeZeroOrNull();
+  if (!handle) return null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const z = handle.zero as any;
+    const rows = await z.query.channel_members
+      .where("channel_id", "=", opts.channel_id)
+      .where("user_id", "=", opts.user_id)
+      .where("removed_at", "IS", null)
+      .run();
+    if (!Array.isArray(rows) || rows.length === 0) {
+      // Row not in local replica — REST knows how to resolve via the
+      // composite (channel_id, user_id) key server-side.
+      return null;
+    }
+    const id = rows[0].id as string;
+    const mutation = z.mutate.channel_members.delete({ id });
+    return await awaitServerWithTimeout(mutation);
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/**
+ * Send a plain-text message to a channel via Zero.
+ *
+ * Scope: TEXT-ONLY, no attachments, no threading, no @mentions, no
+ * channel_name resolution (must be a channel id). All other paths
+ * fall back to REST — caller passes null on those branches.
+ *
+ * Returns { id, channel_id } on success so the caller can include
+ * the new message id in its output banner (REST returns the same
+ * shape, so the caller doesn't need a special branch).
+ */
+export async function sendTextMessageViaZero(opts: {
+  channel_id: string;
+  content: string;
+}): Promise<
+  | { ok: true; id: string; channel_id: string }
+  | { ok: false; error: string }
+  | null
+> {
+  const handle = activeZeroOrNull();
+  if (!handle) return null;
+  try {
+    const id = randomUUID();
+    const now = Date.now();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mutation = (handle.zero.mutate as any).messages.insert({
+      id,
+      channel_id: opts.channel_id,
+      user_id: handle.userId,
+      content: opts.content,
+      kind: "text",
+      is_edited: false,
+      created_at: now,
+      updated_at: now,
+    });
+    const res = await awaitServerWithTimeout(mutation);
+    if (res === null) return null;
+    if (res.ok) {
+      return { ok: true, id, channel_id: opts.channel_id };
+    }
+    return res;
+  } catch (err) {
     return {
       ok: false,
       error: err instanceof Error ? err.message : String(err),

@@ -5,6 +5,7 @@ import { withErrorHandler } from "../../middleware/error-handler.js";
 import { resolveAuth } from "../../../core/auth.js";
 import { createApiClient } from "../../../core/api-client.js";
 import { output } from "../../../core/output.js";
+import { removeChannelMemberViaZero } from "../../../zero/writes.js";
 
 /**
  * `ano channels member-remove <channel-id> <user-id>` — wraps manifest
@@ -22,14 +23,26 @@ export function registerChannelMemberRemove(parent: Command): void {
       withErrorHandler(
         async (channelId: string, userId: string, _opts, cmd) => {
           const globals = cmd.optsWithGlobals() as GlobalOptions;
-          const auth = resolveAuth(globals);
-          const client = createApiClient(auth);
 
-          const result = await client.channelMemberRemove({
+          // Zero fast-path: server runs admin/manager auth.
+          const zeroResult = await removeChannelMemberViaZero({
             channel_id: channelId,
             user_id: userId,
-            workspace_id: globals.workspace,
           });
+          if (zeroResult?.ok === false) {
+            throw new Error(zeroResult.error);
+          }
+
+          const auth = resolveAuth(globals);
+          const client = createApiClient(auth);
+          const result =
+            zeroResult?.ok === true
+              ? { channel_id: channelId, user_id: userId }
+              : await client.channelMemberRemove({
+                  channel_id: channelId,
+                  user_id: userId,
+                  workspace_id: globals.workspace,
+                });
 
           output(globals, {
             data: result,

@@ -5,6 +5,7 @@ import { resolveAuth } from "../../../core/auth.js";
 import { createApiClient } from "../../../core/api-client.js";
 import { output } from "../../../core/output.js";
 import { resolveFiles, uploadAttachments } from "../../file-attachments.js";
+import { sendTextMessageViaZero } from "../../../zero/writes.js";
 
 export function registerSendMessage(parent: Command): void {
   parent
@@ -36,6 +37,48 @@ export function registerSendMessage(parent: Command): void {
           );
         }
         const globals = cmd.optsWithGlobals() as GlobalOptions;
+
+        // Zero fast-path: ONLY the basic text path (channel id given,
+        // no attachments, no thread, no mentions). All other paths
+        // still need server-side resolution (channel_name lookup,
+        // attachment upload, thread parent denormalization, mention
+        // resolution from @handle → user_id) so they go through REST.
+        const zeroEligible =
+          !!opts.channel &&
+          !opts.channelName &&
+          !opts.thread &&
+          !opts.mention &&
+          filePaths.length === 0;
+        if (zeroEligible) {
+          const zeroResult = await sendTextMessageViaZero({
+            channel_id: opts.channel,
+            content,
+          });
+          if (zeroResult?.ok === false) {
+            throw new Error(zeroResult.error);
+          }
+          if (zeroResult?.ok === true) {
+            output(globals, {
+              data: { id: zeroResult.id, channel_id: zeroResult.channel_id },
+              title: "Message sent",
+              breadcrumbs: [
+                {
+                  action: "read_messages",
+                  cmd: `ano messages read --channel ${zeroResult.channel_id}`,
+                  description: "Read channel messages",
+                },
+                {
+                  action: "search_messages",
+                  cmd: 'ano messages search "query"',
+                  description: "Search messages",
+                },
+              ],
+            });
+            return;
+          }
+          // zeroResult === null → Zero unavailable; fall through to REST.
+        }
+
         const auth = resolveAuth(globals);
         const client = createApiClient(auth);
         const attachments =

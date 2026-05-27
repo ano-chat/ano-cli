@@ -1,6 +1,14 @@
 import { describe, it, expect, afterEach, beforeEach } from "vitest";
-import { setActiveZeroClient } from "../../src/zero/active-client.js";
-import { archiveChannelViaZero } from "../../src/zero/writes.js";
+import {
+  setActiveZeroClient,
+  _setLastStatusForTests,
+  _resetDriftedTablesForTests,
+} from "../../src/zero/active-client.js";
+import {
+  archiveChannelViaZero,
+  removeChannelMemberViaZero,
+  sendTextMessageViaZero,
+} from "../../src/zero/writes.js";
 
 /**
  * Tests for the Zero-write fallback + server-confirmation semantics.
@@ -12,28 +20,36 @@ import { archiveChannelViaZero } from "../../src/zero/writes.js";
  *   - return null when the server reply times out (so caller can REST)
  */
 describe("zero-writes — archiveChannelViaZero", () => {
-  const origEnv = process.env.ANO_USE_ZERO;
+  const origEnv = process.env.ANO_DISABLE_ZERO;
   beforeEach(() => {
     setActiveZeroClient(null);
+    _resetDriftedTablesForTests();
+    // Force Zero's connection guard to "connected" so write helpers
+    // proceed; tests that want the disconnected branch set it
+    // explicitly. (Mirrors the zero-reads.test.ts fixture.)
+    _setLastStatusForTests("connected");
+    delete process.env.ANO_DISABLE_ZERO;
   });
   afterEach(() => {
     setActiveZeroClient(null);
-    if (origEnv === undefined) delete process.env.ANO_USE_ZERO;
-    else process.env.ANO_USE_ZERO = origEnv;
+    _resetDriftedTablesForTests();
+    _setLastStatusForTests("init");
+    if (origEnv === undefined) delete process.env.ANO_DISABLE_ZERO;
+    else process.env.ANO_DISABLE_ZERO = origEnv;
   });
 
   it("returns null when Zero is disabled", async () => {
-    delete process.env.ANO_USE_ZERO;
+    process.env.ANO_DISABLE_ZERO = "1";
     expect(await archiveChannelViaZero({ channel_id: "c1" })).toBeNull();
   });
 
   it("returns null when Zero is enabled but no active client", async () => {
-    process.env.ANO_USE_ZERO = "1";
+    // Zero default-on; beforeEach already unset ANO_DISABLE_ZERO.
     expect(await archiveChannelViaZero({ channel_id: "c1" })).toBeNull();
   });
 
   it("returns { ok: true } when server confirms", async () => {
-    process.env.ANO_USE_ZERO = "1";
+    // Zero default-on; beforeEach already unset ANO_DISABLE_ZERO.
     setActiveZeroClient({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       zero: {
@@ -58,7 +74,7 @@ describe("zero-writes — archiveChannelViaZero", () => {
   });
 
   it("returns { ok: false, error } when server rejects", async () => {
-    process.env.ANO_USE_ZERO = "1";
+    // Zero default-on; beforeEach already unset ANO_DISABLE_ZERO.
     setActiveZeroClient({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       zero: {
@@ -89,7 +105,7 @@ describe("zero-writes — archiveChannelViaZero", () => {
   });
 
   it("propagates a server-promise rejection as { ok: false } (no unhandled rejection)", async () => {
-    process.env.ANO_USE_ZERO = "1";
+    // Zero default-on; beforeEach already unset ANO_DISABLE_ZERO.
     setActiveZeroClient({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       zero: {
@@ -127,7 +143,7 @@ describe("zero-writes — archiveChannelViaZero", () => {
   });
 
   it("returns { ok: false } when constructing the mutation throws synchronously", async () => {
-    process.env.ANO_USE_ZERO = "1";
+    // Zero default-on; beforeEach already unset ANO_DISABLE_ZERO.
     setActiveZeroClient({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       zero: {
@@ -151,3 +167,206 @@ describe("zero-writes — archiveChannelViaZero", () => {
     expect(r).toEqual({ ok: false, error: "zero not initialized" });
   });
 });
+
+describe("zero-writes — removeChannelMemberViaZero", () => {
+  const origEnv = process.env.ANO_DISABLE_ZERO;
+  beforeEach(() => {
+    setActiveZeroClient(null);
+    _resetDriftedTablesForTests();
+    // Force Zero's connection guard to "connected" so write helpers
+    // proceed; tests that want the disconnected branch set it
+    // explicitly. (Mirrors the zero-reads.test.ts fixture.)
+    _setLastStatusForTests("connected");
+    delete process.env.ANO_DISABLE_ZERO;
+  });
+  afterEach(() => {
+    setActiveZeroClient(null);
+    _resetDriftedTablesForTests();
+    _setLastStatusForTests("init");
+    if (origEnv === undefined) delete process.env.ANO_DISABLE_ZERO;
+    else process.env.ANO_DISABLE_ZERO = origEnv;
+  });
+
+  it("returns null when Zero is off", async () => {
+    process.env.ANO_DISABLE_ZERO = "1";
+    expect(
+      await removeChannelMemberViaZero({ channel_id: "c1", user_id: "u1" }),
+    ).toBeNull();
+  });
+
+  it("returns null when the channel_members row isn't in the local replica", async () => {
+    // Zero default-on; beforeEach already unset ANO_DISABLE_ZERO.
+    setActiveZeroClient({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      zero: {
+        query: {
+          channel_members: makeQueryChain([]),
+        },
+      } as any,
+      userId: "u-actor",
+      auth: {} as never,
+      stats: () => ({
+        replicaPath: "",
+        replicaSizeBytes: null,
+        connectionStatus: "connected",
+      }),
+      dispose: async () => {},
+    });
+    const r = await removeChannelMemberViaZero({
+      channel_id: "c1",
+      user_id: "u1",
+    });
+    expect(r).toBeNull();
+  });
+
+  it("returns { ok: true } when row found AND server confirms", async () => {
+    // Zero default-on; beforeEach already unset ANO_DISABLE_ZERO.
+    setActiveZeroClient({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      zero: {
+        query: {
+          channel_members: makeQueryChain([
+            { id: "cm-123", channel_id: "c1", user_id: "u1" },
+          ]),
+        },
+        mutate: {
+          channel_members: {
+            delete: (args: { id: string }) => {
+              expect(args.id).toBe("cm-123");
+              return { server: Promise.resolve({ type: "success" }) };
+            },
+          },
+        },
+      } as any,
+      userId: "u-actor",
+      auth: {} as never,
+      stats: () => ({
+        replicaPath: "",
+        replicaSizeBytes: null,
+        connectionStatus: "connected",
+      }),
+      dispose: async () => {},
+    });
+    const r = await removeChannelMemberViaZero({
+      channel_id: "c1",
+      user_id: "u1",
+    });
+    expect(r).toEqual({ ok: true });
+  });
+});
+
+describe("zero-writes — sendTextMessageViaZero", () => {
+  const origEnv = process.env.ANO_DISABLE_ZERO;
+  beforeEach(() => {
+    setActiveZeroClient(null);
+    _resetDriftedTablesForTests();
+    // Force Zero's connection guard to "connected" so write helpers
+    // proceed; tests that want the disconnected branch set it
+    // explicitly. (Mirrors the zero-reads.test.ts fixture.)
+    _setLastStatusForTests("connected");
+    delete process.env.ANO_DISABLE_ZERO;
+  });
+  afterEach(() => {
+    setActiveZeroClient(null);
+    _resetDriftedTablesForTests();
+    _setLastStatusForTests("init");
+    if (origEnv === undefined) delete process.env.ANO_DISABLE_ZERO;
+    else process.env.ANO_DISABLE_ZERO = origEnv;
+  });
+
+  it("returns null when Zero is off", async () => {
+    process.env.ANO_DISABLE_ZERO = "1";
+    expect(
+      await sendTextMessageViaZero({ channel_id: "c1", content: "hi" }),
+    ).toBeNull();
+  });
+
+  it("sends with caller userId, returns { ok, id, channel_id } on success", async () => {
+    // Zero default-on; beforeEach already unset ANO_DISABLE_ZERO.
+    let insertedArgs: Record<string, unknown> | null = null;
+    setActiveZeroClient({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      zero: {
+        mutate: {
+          messages: {
+            insert: (args: Record<string, unknown>) => {
+              insertedArgs = args;
+              return { server: Promise.resolve({ type: "success" }) };
+            },
+          },
+        },
+      } as any,
+      userId: "u-actor",
+      auth: {} as never,
+      stats: () => ({
+        replicaPath: "",
+        replicaSizeBytes: null,
+        connectionStatus: "connected",
+      }),
+      dispose: async () => {},
+    });
+    const r = await sendTextMessageViaZero({
+      channel_id: "c1",
+      content: "hello",
+    });
+    expect(r).not.toBeNull();
+    expect(r).toMatchObject({ ok: true, channel_id: "c1" });
+    if (r && r.ok) expect(typeof r.id).toBe("string");
+    expect(insertedArgs).toMatchObject({
+      channel_id: "c1",
+      user_id: "u-actor",
+      content: "hello",
+      kind: "text",
+      is_edited: false,
+    });
+  });
+
+  it("surfaces server errors", async () => {
+    // Zero default-on; beforeEach already unset ANO_DISABLE_ZERO.
+    setActiveZeroClient({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      zero: {
+        mutate: {
+          messages: {
+            insert: () => ({
+              server: Promise.resolve({
+                type: "error",
+                error: "Unauthorized: not a channel member",
+              }),
+            }),
+          },
+        },
+      } as any,
+      userId: "u-actor",
+      auth: {} as never,
+      stats: () => ({
+        replicaPath: "",
+        replicaSizeBytes: null,
+        connectionStatus: "connected",
+      }),
+      dispose: async () => {},
+    });
+    const r = await sendTextMessageViaZero({
+      channel_id: "c1",
+      content: "hello",
+    });
+    expect(r).toEqual({
+      ok: false,
+      error: "Unauthorized: not a channel member",
+    });
+  });
+});
+
+/**
+ * Build a chainable Zero query stub that resolves `.run()` to the
+ * given rows. Records `.where(...)` calls but doesn't validate args
+ * — narrow assertions live in individual tests.
+ */
+function makeQueryChain(rows: unknown[]): unknown {
+  const chain: Record<string, unknown> = {};
+  for (const m of ["where", "orderBy", "limit", "related"] as const) {
+    chain[m] = () => chain;
+  }
+  chain.run = async () => rows;
+  return chain;
+}
