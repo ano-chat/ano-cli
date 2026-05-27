@@ -148,16 +148,48 @@ export function registerDaemon(parent: Command): void {
         process.stdout.write(lines.join("\n") + "\n");
         return;
       }
-      // Stale pid file? Report it so the user knows what to clean up.
-      let stale = "";
+      // Daemon didn't reply. Tell the user what we COULD see, so they
+      // don't have to guess. A "not running" daemon can fail in three
+      // distinguishable ways and the user wants different responses
+      // for each:
+      //
+      //   • Breaker tripped → daemon was force-killed by client after
+      //     a slow/misbehaving call; will auto-reopen in 10 min, or
+      //     `ano daemon start` clears it now.
+      //   • Stale pid/socket file → daemon crashed without cleanup;
+      //     next CLI call will respawn. Files are decorative now.
+      //   • Nothing → daemon never started; `ano daemon start` starts
+      //     it OR the next CLI call auto-spawns it.
+      const lines = [`status:  not running`];
+      if (isCircuitBreakerTripped()) {
+        lines.push(
+          `breaker: TRIPPED — CLI calls bypass daemon until cooldown expires`,
+        );
+        lines.push(
+          `         run \`ano daemon start\` to clear the breaker and respawn`,
+        );
+      }
       if (existsSync(pidPath)) {
         try {
-          stale = ` (stale pid ${readFileSync(pidPath, "utf8").trim()})`;
+          const stalePid = readFileSync(pidPath, "utf8").trim();
+          lines.push(
+            `orphan:  ${pidPath} (pid ${stalePid}) — daemon died without cleanup`,
+          );
         } catch {
-          // ignore
+          lines.push(`orphan:  ${pidPath} (pid unreadable)`);
         }
       }
-      process.stdout.write(`status: not running${stale}\n`);
+      if (existsSync(socketPath)) {
+        lines.push(`orphan:  ${socketPath} — stale socket file`);
+      }
+      // No diagnostic context = pristine state, just no daemon.
+      // Suggest the obvious next move.
+      if (lines.length === 1) {
+        lines.push(
+          `         run \`ano daemon start\` or just \`ano <cmd>\` (auto-spawns)`,
+        );
+      }
+      process.stdout.write(lines.join("\n") + "\n");
     });
 }
 

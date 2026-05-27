@@ -17,7 +17,7 @@
  *     are clearer when the calling shell owns the process.
  *   • Any argv hint that the command will read stdin (`--file -`, etc.).
  */
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -353,14 +353,66 @@ function readPidFile(): number | null {
 }
 
 /**
+ * Best-effort check that a PID is actually our daemon, not a recycled
+ * unrelated process. Two signals:
+ *
+ *   1. `process.kill(pid, 0)` — sends no signal, just checks whether
+ *      we have permission to signal it. EPERM = it's not ours
+ *      (different user). ESRCH = no such process.
+ *   2. `ps` lookup of the cmdline — must contain "ano" AND "daemon".
+ *      Pinning to a specific binary path is too brittle (homebrew vs
+ *      system-wide vs user prefixes); the cmdline tail is the stable
+ *      part of every spawn we issue.
+ *
+ * If `ps` isn't available we conservatively return `false` rather
+ * than risk killing a recycled PID. The cost of a false negative is
+ * a leftover dead PID file; the cost of a false positive is killing
+ * an innocent process. Asymmetric — bias toward caution.
+ */
+function isOurDaemon(pid: number): boolean {
+  // Step 1: signal-0 probe. Fails fast on dead/foreign PIDs.
+  try {
+    process.kill(pid, 0);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ESRCH") return false; // no such process
+    if (code === "EPERM") return false; // process exists but not ours
+    return false;
+  }
+
+  // Step 2: confirm the cmdline contains our daemon signature. We
+  // can't use `cat /proc/<pid>/cmdline` because macOS has no /proc;
+  // `ps -o command= -p <pid>` works on both Linux and macOS.
+  try {
+    const cmd = execFileSync("ps", ["-o", "command=", "-p", String(pid)], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const line = cmd.trim();
+    return line.includes("ano") && line.includes("daemon");
+  } catch {
+    // ps unavailable or pid disappeared between step 1 and step 2.
+    // Bias toward NOT killing.
+    return false;
+  }
+}
+
+/**
  * Force-cleanup a wedged daemon: SIGKILL the process (via PID file
  * if available) and unlink the stale socket so the next `connect()`
  * doesn't immediately succeed against an EBADF socket. Both steps
  * are best-effort — failures are swallowed because we're already in
  * the unhappy path.
+ *
+ * PID-recycle guard: a PID file written days ago may now belong to a
+ * completely unrelated process. We probe with `kill(pid, 0)` (no
+ * signal sent, just permission check) and a best-effort check that
+ * the process is actually the daemon. If we can't confirm, we skip
+ * the kill — better to leak a dead PID file than to SIGKILL an
+ * innocent process.
  */
 function forceKillDaemon(socketPath: string, pid: number | null): void {
-  if (pid && pid > 0 && pid !== process.pid) {
+  if (pid && pid > 0 && pid !== process.pid && isOurDaemon(pid)) {
     try {
       // SIGKILL — the daemon's own SIGTERM handler may itself be
       // wedged; we don't have time for a graceful drain.

@@ -90,10 +90,10 @@ describe("ensureHealthy", () => {
     expect(await ensureHealthy(socketPath)).toBe("healthy");
   }, 5000);
 
-  it("kills + respawns when the daemon socket accepts but never replies", async () => {
+  it("respawns when the daemon socket accepts but never replies (PID-recycle safe)", async () => {
     // Wedged daemon: bind a server that swallows the ping bytes and
     // never writes a response. Client should give up after
-    // PING_TIMEOUT_MS (~1s).
+    // PING_TIMEOUT_MS (~1s) and clean up the socket.
     dummyServer = createServer((sock: Socket) => {
       sock.on("data", () => {
         /* swallow */
@@ -102,10 +102,11 @@ describe("ensureHealthy", () => {
     await new Promise<void>((resolve) =>
       dummyServer!.listen(socketPath, resolve),
     );
-    // Drop a fake pid file so the client knows whom to SIGKILL. The
-    // client refuses to kill its own PID (safety guard), so we use a
-    // sentinel high value; `process.kill` is stubbed so no signal goes
-    // out anyway.
+    // Drop a fake pid file. The PID-recycle guard added in v2.22.2
+    // does a `ps -o command= -p <pid>` check before SIGKILL. PID
+    // 999_999 won't pass `ps` (no such process), so the guard
+    // SHOULD skip the kill — better to leak a dead PID file than
+    // to SIGKILL an innocent recycled process.
     const FAKE_PID = 999_999;
     writeFileSync(pidPath, String(FAKE_PID), { mode: 0o600 });
     killSpy = vi.spyOn(process, "kill").mockImplementation(() => true) as never;
@@ -118,9 +119,15 @@ describe("ensureHealthy", () => {
     // Should give up within ~1.5s (PING_TIMEOUT_MS = 1000ms). Generous
     // slack for slow CI.
     expect(elapsed).toBeLessThan(2500);
-    // SIGKILL'd via the PID file.
-    expect(killSpy).toHaveBeenCalledWith(FAKE_PID, "SIGKILL");
-    // Socket got unlinked so the next call doesn't see a stale node.
+    // The guard prevents SIGKILL of a PID we can't verify is ours.
+    // The only kill call should be the signal-0 probe (which the
+    // guard issues to check if the PID exists).
+    const sigkillCalls = killSpy.mock.calls.filter(
+      ([, signal]) => signal === "SIGKILL",
+    );
+    expect(sigkillCalls.length).toBe(0);
+    // Socket got unlinked regardless so the next call doesn't see a
+    // stale node.
     expect(existsSync(socketPath)).toBe(false);
     // PID file got cleaned up too.
     expect(existsSync(pidPath)).toBe(false);
