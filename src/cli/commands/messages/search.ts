@@ -4,6 +4,7 @@ import { withErrorHandler } from "../../middleware/error-handler.js";
 import { resolveAuth } from "../../../core/auth.js";
 import { createApiClient } from "../../../core/api-client.js";
 import { output } from "../../../core/output.js";
+import { searchMessagesViaZero } from "../../../zero/reads.js";
 
 export function registerSearchMessages(parent: Command): void {
   parent
@@ -14,13 +15,23 @@ export function registerSearchMessages(parent: Command): void {
     .action(
       withErrorHandler(async (query, opts, cmd) => {
         const globals = cmd.optsWithGlobals() as GlobalOptions;
-        const auth = resolveAuth(globals);
-        const client = createApiClient(auth);
-        const result = await client.searchMessages({
+        const limit = parseInt(opts.limit, 10);
+        const zeroResult = await searchMessagesViaZero({
           query,
           workspace_id: globals.workspace,
-          limit: parseInt(opts.limit, 10),
+          limit,
         });
+        const result =
+          zeroResult ??
+          (await (async () => {
+            const auth = resolveAuth(globals);
+            const client = createApiClient(auth);
+            return await client.searchMessages({
+              query,
+              workspace_id: globals.workspace,
+              limit,
+            });
+          })());
 
         const messages = result.messages.map((m) => ({
           ...m,

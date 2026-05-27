@@ -1,0 +1,268 @@
+/**
+ * Zero-backed read helpers for CLI commands.
+ *
+ * Each helper:
+ *   1. Looks up the daemon's active Zero client (or null if Zero is off
+ *      or hasn't bootstrapped yet).
+ *   2. Runs the query against the local replica with a small timeout.
+ *   3. Returns the data shaped exactly like the REST endpoint would —
+ *      so callers can swap the API call for the Zero call without
+ *      touching their output formatting.
+ *   4. Returns `null` on miss (no Zero, timeout, query error). Caller
+ *      falls back to REST.
+ *
+ * Why a timeout: the first read after `ano daemon start` may run while
+ * Zero is still syncing the initial replica. We don't want CLI calls
+ * to block on a 10-30s bootstrap — they fall back to REST and still
+ * succeed, just one-time slow.
+ *
+ * The timeout is generous (1500ms) because subsequent reads are
+ * SQLite-local and complete in microseconds; the timeout is only
+ * load-bearing during the cold-start window.
+ */
+import { activeZeroOrNull } from "./active-client.js";
+import type { Channel, User, Message } from "../core/api-client.js";
+
+const ZERO_READ_TIMEOUT_MS = 1500;
+
+/**
+ * Wrap any Zero query promise with a timeout. Returns `null` if the
+ * query exceeds the timeout (caller falls back to REST), throws on
+ * other errors (caller's normal error path handles them).
+ */
+async function withTimeout<T>(p: Promise<T>): Promise<T | null> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), ZERO_READ_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([p, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/**
+ * List channels for a workspace via Zero. Returns null if Zero is not
+ * available — caller MUST fall back to REST.
+ *
+ * Mirrors `apiClient.listChannels({ workspace_id })`. The REST endpoint
+ * filters by:
+ *   - the caller's workspace memberships (server-side auth)
+ *   - `is_archived = false`
+ *   - `deleted_at IS NULL`
+ *
+ * Zero's row-level permissions already enforce membership, so we only
+ * apply the archived + deleted filters here.
+ */
+export async function listChannelsViaZero(opts: {
+  workspace_id?: string;
+}): Promise<{ channels: Channel[] } | null> {
+  const handle = activeZeroOrNull();
+  if (!handle) return null;
+
+  // Zero's `query.X` exposes Query<T>; `.run()` materializes once.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const z = handle.zero as any;
+  try {
+    let q = z.query.channels
+      .where("is_archived", "=", false)
+      .where("deleted_at", "IS", null);
+    if (opts.workspace_id) {
+      q = q.where("workspace_id", "=", opts.workspace_id);
+    }
+    const rows = await withTimeout(q.run());
+    if (rows === null) return null;
+    return {
+      channels: (rows as ChannelRow[]).map((r) => ({
+        id: r.id,
+        name: r.name,
+        type: r.type,
+        topic: r.topic ?? undefined,
+        is_private: r.is_private,
+      })),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * List workspace members (users) via Zero. Mirrors
+ * `apiClient.listUsers({ workspace_id })`.
+ */
+export async function listUsersViaZero(opts: {
+  workspace_id?: string;
+}): Promise<{ users: User[] } | null> {
+  const handle = activeZeroOrNull();
+  if (!handle) return null;
+  if (!opts.workspace_id) return null; // Zero requires a workspace scope
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const z = handle.zero as any;
+  try {
+    const rows = await withTimeout(
+      z.query.workspace_members
+        .where("workspace_id", "=", opts.workspace_id)
+        .where("removed_at", "IS", null)
+        .related("user")
+        .run(),
+    );
+    if (rows === null) return null;
+    const seen = new Set<string>();
+    const users: User[] = [];
+    for (const r of rows as WorkspaceMemberRow[]) {
+      const u = r.user;
+      if (!u || seen.has(u.id) || u.is_deactivated) continue;
+      seen.add(u.id);
+      users.push({
+        id: u.id,
+        display_name: u.display_name,
+        email: u.email,
+        avatar_url: u.avatar_url ?? undefined,
+      });
+    }
+    return { users };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read recent messages from a channel via Zero. Mirrors
+ * `apiClient.readMessages({ channel_id, limit })`.
+ */
+export async function readMessagesViaZero(opts: {
+  channel_id: string;
+  limit?: number;
+}): Promise<{ messages: Message[] } | null> {
+  const handle = activeZeroOrNull();
+  if (!handle) return null;
+
+  const limit = opts.limit ?? 50;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const z = handle.zero as any;
+  try {
+    const rows = await withTimeout(
+      z.query.messages
+        .where("channel_id", "=", opts.channel_id)
+        .where("deleted_at", "IS", null)
+        .related("author")
+        .orderBy("created_at", "desc")
+        .limit(limit)
+        .run(),
+    );
+    if (rows === null) return null;
+    // REST returns oldest → newest; we asked Zero for newest → reverse.
+    const messages: Message[] = (rows as MessageRow[])
+      .slice()
+      .reverse()
+      .map((r) => ({
+        id: r.id,
+        sender: {
+          id: r.author?.id ?? r.user_id,
+          name: r.author?.display_name ?? "unknown",
+        },
+        content: r.body,
+        timestamp: r.created_at,
+      }));
+    return { messages };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Search messages by query string via Zero. Mirrors
+ * `apiClient.searchMessages({ query, workspace_id, limit })`.
+ *
+ * Local SQLite has no full-text index by default; we do a `LIKE` scan
+ * with a low limit. Acceptable for an interactive CLI grep. If users
+ * want a real FTS path, that's a follow-up (Zero supports
+ * server-side queries that materialize on demand).
+ */
+export async function searchMessagesViaZero(opts: {
+  query: string;
+  workspace_id?: string;
+  limit?: number;
+}): Promise<{ messages: Message[] } | null> {
+  const handle = activeZeroOrNull();
+  if (!handle) return null;
+
+  const limit = opts.limit ?? 25;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const z = handle.zero as any;
+  try {
+    // Use case-insensitive LIKE via Zero's `ILIKE` operator. If Zero
+    // doesn't support ILIKE on this column type, fall back to null
+    // and let the caller hit REST.
+    let q = z.query.messages
+      .where("body", "ILIKE", `%${opts.query}%`)
+      .where("deleted_at", "IS", null)
+      .related("author")
+      .related("channel")
+      .orderBy("created_at", "desc")
+      .limit(limit);
+    if (opts.workspace_id) {
+      q = q.whereExists(
+        "channel",
+        (c: { where: (...args: unknown[]) => unknown }) =>
+          c.where("workspace_id", "=", opts.workspace_id!),
+      );
+    }
+    const rows = await withTimeout(q.run());
+    if (rows === null) return null;
+    const messages: Message[] = (rows as MessageRow[]).map((r) => ({
+      id: r.id,
+      sender: {
+        id: r.author?.id ?? r.user_id,
+        name: r.author?.display_name ?? "unknown",
+      },
+      content: r.body,
+      timestamp: r.created_at,
+      channel: r.channel?.name,
+    }));
+    return { messages };
+  } catch {
+    return null;
+  }
+}
+
+// ── row shapes (narrow projections of CliSchema tables) ─────────────
+
+interface ChannelRow {
+  id: string;
+  name: string;
+  type: string;
+  topic: string | null | undefined;
+  is_private: boolean;
+}
+
+interface MessageRow {
+  id: string;
+  channel_id: string;
+  user_id: string;
+  body: string;
+  created_at: number;
+  author?: {
+    id: string;
+    display_name: string;
+    email: string;
+    avatar_url?: string | null;
+  };
+  channel?: { id: string; name: string; workspace_id?: string | null };
+}
+
+interface WorkspaceMemberRow {
+  id: string;
+  workspace_id: string;
+  user_id: string;
+  removed_at: number | null | undefined;
+  user?: {
+    id: string;
+    display_name: string;
+    email: string;
+    avatar_url?: string | null;
+    is_deactivated: boolean;
+  };
+}

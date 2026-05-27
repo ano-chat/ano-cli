@@ -4,6 +4,7 @@ import { withErrorHandler } from "../../middleware/error-handler.js";
 import { resolveAuth } from "../../../core/auth.js";
 import { createApiClient } from "../../../core/api-client.js";
 import { output } from "../../../core/output.js";
+import { listUsersViaZero } from "../../../zero/reads.js";
 
 export function registerListUsers(parent: Command): void {
   parent
@@ -12,11 +13,18 @@ export function registerListUsers(parent: Command): void {
     .action(
       withErrorHandler(async (_opts, cmd) => {
         const globals = cmd.optsWithGlobals() as GlobalOptions;
-        const auth = resolveAuth(globals);
-        const client = createApiClient(auth);
-        const result = await client.listUsers({
+        const zeroResult = await listUsersViaZero({
           workspace_id: globals.workspace,
         });
+        const result =
+          zeroResult ??
+          (await (async () => {
+            const auth = resolveAuth(globals);
+            const client = createApiClient(auth);
+            return await client.listUsers({
+              workspace_id: globals.workspace,
+            });
+          })());
 
         output(globals, {
           data: result.users,

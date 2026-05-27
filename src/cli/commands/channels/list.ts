@@ -4,6 +4,7 @@ import { withErrorHandler } from "../../middleware/error-handler.js";
 import { resolveAuth } from "../../../core/auth.js";
 import { createApiClient } from "../../../core/api-client.js";
 import { output } from "../../../core/output.js";
+import { listChannelsViaZero } from "../../../zero/reads.js";
 
 export function registerListChannels(parent: Command): void {
   parent
@@ -12,11 +13,21 @@ export function registerListChannels(parent: Command): void {
     .action(
       withErrorHandler(async (_opts, cmd) => {
         const globals = cmd.optsWithGlobals() as GlobalOptions;
-        const auth = resolveAuth(globals);
-        const client = createApiClient(auth);
-        const result = await client.listChannels({
+        // Zero-fast-path: if the daemon has a Zero replica, serve from
+        // local SQLite (microsecond reads). Falls through to REST on
+        // miss, timeout, or any query error.
+        const zeroResult = await listChannelsViaZero({
           workspace_id: globals.workspace,
         });
+        const result =
+          zeroResult ??
+          (await (async () => {
+            const auth = resolveAuth(globals);
+            const client = createApiClient(auth);
+            return await client.listChannels({
+              workspace_id: globals.workspace,
+            });
+          })());
 
         output(globals, {
           data: result.channels,
