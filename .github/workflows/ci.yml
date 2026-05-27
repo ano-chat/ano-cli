@@ -47,6 +47,73 @@ jobs:
           ./dist-native/ano-linux-x64 --version
           ./dist-native/ano-linux-x64 --help > /dev/null
 
+  # npm postinstall smoke. Simulates `npm install -g @ano-chat/cli` by
+  # packing the local tarball, installing it to a tmp prefix, and
+  # confirming the postinstall script runs cleanly without breaking
+  # the install. Runs on macOS + Linux because postinstall behavior
+  # depends on real `process.platform` / `process.arch`.
+  #
+  # What this catches:
+  #   • script crashes (bad imports, syntax errors, exit code != 0)
+  #   • opt-out path: ANO_SKIP_NATIVE_POSTINSTALL preserves the JS shim
+  #   • file placement: dist/index.js ends up where the bin symlink
+  #     expects it
+  #
+  # What this does NOT catch (covered by manual release smoke):
+  #   • The actual native-binary download path. The postinstall fetches
+  #     from the GH Release matching package.json's version. For a PR
+  #     bumping to vNext, that release doesn't exist yet → the script
+  #     warns + keeps the JS shim. That's the "fallback" path and is
+  #     correct behavior; the "happy path" (download + replace) is
+  #     covered by local smoke during the release flow. After the tag
+  #     is cut + binaries upload, the next CI run on main DOES exercise
+  #     the happy path because the release now matches.
+  npm-postinstall:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Pack the local tarball
+        run: |
+          npm pack
+          ls -la *.tgz
+      - name: Install to a tmp prefix, with the postinstall script
+        env:
+          # Postinstall version-matches package version to a GH Release.
+          # If the package version is unreleased (e.g. a new bump that
+          # hasn't been tagged), the postinstall will warn + keep JS;
+          # we DON'T fail the job on that because it's the expected
+          # fallback path. The downstream smoke step asserts the binary
+          # arrived OR the JS shim still works.
+          npm_config_loglevel: warn
+        run: |
+          mkdir -p /tmp/npm-prefix
+          npm install --prefix /tmp/npm-prefix --global ./ano-chat-cli-*.tgz
+          ls -la /tmp/npm-prefix/lib/node_modules/@ano-chat/cli/dist/index.js
+      - name: Smoke the installed CLI (binary OR JS, both should work)
+        run: |
+          /tmp/npm-prefix/lib/node_modules/@ano-chat/cli/dist/index.js --version
+          /tmp/npm-prefix/lib/node_modules/@ano-chat/cli/dist/index.js --help > /dev/null
+          file /tmp/npm-prefix/lib/node_modules/@ano-chat/cli/dist/index.js
+      - name: Smoke the opt-out path (JS shim must remain)
+        run: |
+          mkdir -p /tmp/npm-prefix-optout
+          ANO_SKIP_NATIVE_POSTINSTALL=1 \
+            npm install --prefix /tmp/npm-prefix-optout --global ./ano-chat-cli-*.tgz
+          # The file must still be a Node script with the shebang.
+          head -1 /tmp/npm-prefix-optout/lib/node_modules/@ano-chat/cli/dist/index.js | grep -q "node" \
+            || (echo "FAIL: opt-out should preserve the JS shim with #!/usr/bin/env node shebang" && exit 1)
+          echo "✓ Opt-out path preserved JS shim"
+
   # Install script smoke. Resolves latest release from GitHub, downloads
   # the binary, verifies SHA256, runs --version. Catches regressions in
   # the script itself (bash compat, version parsing, SHA verification)

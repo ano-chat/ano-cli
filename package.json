@@ -1,6 +1,6 @@
 {
   "name": "@ano-chat/cli",
-  "version": "2.21.3",
+  "version": "2.22.0",
   "description": "CLI for Ano — team communication for humans and agents",
   "type": "module",
   "bin": {
@@ -8,11 +8,13 @@
     "ano-bridge": "dist/bridge-entry.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "scripts/postinstall.mjs"
   ],
   "scripts": {
     "build": "tsup",
     "build:native": "node scripts/build-native.mjs",
+    "postinstall": "node scripts/postinstall.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
