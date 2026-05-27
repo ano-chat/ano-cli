@@ -86,6 +86,42 @@ describe("zero-reads — fallback semantics", () => {
     expect(await listUsersViaZero({})).toBeNull();
   });
 
+  it("returns null when the query promise rejects asynchronously (no unhandled rejection)", async () => {
+    process.env.ANO_USE_ZERO = "1";
+    // Build a chain whose `.run()` rejects after a microtask.
+    const rejectingChain = makeChainStub([]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (rejectingChain as any).run = async () => {
+      throw new Error("zero query exploded");
+    };
+    setActiveZeroClient({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      zero: { query: { channels: rejectingChain } } as any,
+      auth: {} as never,
+      stats: () => ({
+        replicaPath: "",
+        replicaSizeBytes: null,
+        connectionStatus: "test",
+      }),
+      dispose: async () => {},
+    });
+
+    // Track unhandled rejections during this test.
+    const seenUnhandled: unknown[] = [];
+    const listener = (reason: unknown) => seenUnhandled.push(reason);
+    process.on("unhandledRejection", listener);
+    try {
+      const result = await listChannelsViaZero({});
+      expect(result).toBeNull();
+      // Give the microtask queue a chance to surface unhandled rejections.
+      await new Promise((r) => setImmediate(r));
+      await new Promise((r) => setImmediate(r));
+      expect(seenUnhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", listener);
+    }
+  });
+
   it("returns rows shaped like REST when query resolves", async () => {
     process.env.ANO_USE_ZERO = "1";
     // Mock a Zero query chain that returns three channels.

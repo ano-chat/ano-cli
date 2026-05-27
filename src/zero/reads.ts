@@ -27,16 +27,30 @@ const ZERO_READ_TIMEOUT_MS = 1500;
 
 /**
  * Wrap any Zero query promise with a timeout. Returns `null` if the
- * query exceeds the timeout (caller falls back to REST), throws on
- * other errors (caller's normal error path handles them).
+ * query exceeds the timeout (caller falls back to REST), or if the
+ * query itself rejects (caller falls back too — never propagate Zero
+ * errors out of the read helpers, since the whole point is that
+ * Zero is best-effort).
+ *
+ * Attaches a `.catch()` to the underlying promise so it does NOT
+ * become an unhandled rejection if it rejects AFTER the timeout has
+ * already fired. Without this, a slow + eventually-failing Zero query
+ * crashes the daemon under Node's strict unhandled-rejection mode.
  */
 async function withTimeout<T>(p: Promise<T>): Promise<T | null> {
+  // Swallow eventual rejection even if we've already returned null
+  // from the race. Resolves to `null` on reject so the race outcome
+  // is consistent ("timed out OR query errored → null").
+  const safe = p.then(
+    (v) => v as T | null,
+    () => null as T | null,
+  );
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<null>((resolve) => {
     timer = setTimeout(() => resolve(null), ZERO_READ_TIMEOUT_MS);
   });
   try {
-    return await Promise.race([p, timeout]);
+    return await Promise.race([safe, timeout]);
   } finally {
     if (timer) clearTimeout(timer);
   }

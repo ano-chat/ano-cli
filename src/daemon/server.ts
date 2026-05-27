@@ -505,7 +505,10 @@ export function startDaemon(opts: DaemonStartOptions = {}): {
     const zh = getActiveZeroClient();
     if (zh) {
       setActiveZeroClient(null);
-      void zh.dispose();
+      // Swallow rejection — dispose is best-effort and the process
+      // is exiting anyway. Without `.catch`, an error here would
+      // become an unhandled rejection right before exit.
+      zh.dispose().catch(() => {});
     }
     if (opts._onShutdown) opts._onShutdown();
     else process.exit(0);
@@ -529,7 +532,11 @@ export function startDaemon(opts: DaemonStartOptions = {}): {
     // Skipped in tests where prewarm would just be noise.
     if (!opts.skipPrewarm) {
       void prewarmDefaultEndpoint();
-      void bootstrapZero();
+      // Belt + suspenders: bootstrapZero() has try/catches around
+      // every external call, but attach a swallow here too so an
+      // unanticipated throw doesn't surface as an unhandled
+      // rejection that crashes the daemon.
+      bootstrapZero().catch(() => {});
     }
   });
   ctx.server.on("error", (err: NodeJS.ErrnoException) => {
