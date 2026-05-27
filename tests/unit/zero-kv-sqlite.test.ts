@@ -31,7 +31,7 @@ afterEach(() => {
 
 describe("createSqliteKvStoreProvider", () => {
   it("create + write + read round-trips a value", async () => {
-    const provider = createSqliteKvStoreProvider({ pathPrefix: dir });
+    const provider = await createSqliteKvStoreProvider({ pathPrefix: dir });
     const store = provider.create("test_store");
 
     // Write
@@ -50,7 +50,7 @@ describe("createSqliteKvStoreProvider", () => {
   });
 
   it("isolates two stores in the same provider", async () => {
-    const provider = createSqliteKvStoreProvider({ pathPrefix: dir });
+    const provider = await createSqliteKvStoreProvider({ pathPrefix: dir });
     const a = provider.create("alpha");
     const b = provider.create("beta");
 
@@ -77,7 +77,7 @@ describe("createSqliteKvStoreProvider", () => {
   });
 
   it("drop removes the on-disk file (+ WAL sidecars)", async () => {
-    const provider = createSqliteKvStoreProvider({ pathPrefix: dir });
+    const provider = await createSqliteKvStoreProvider({ pathPrefix: dir });
     const store = provider.create("droppable");
 
     const write = await store.write();
@@ -96,13 +96,13 @@ describe("createSqliteKvStoreProvider", () => {
   });
 
   it("drop on a non-existent store is a no-op (no throw)", async () => {
-    const provider = createSqliteKvStoreProvider({ pathPrefix: dir });
+    const provider = await createSqliteKvStoreProvider({ pathPrefix: dir });
     // Should resolve, not throw.
     await expect(provider.drop("doesnotexist")).resolves.toBeUndefined();
   });
 
   it("sanitizes Zero-supplied names with `:` into valid filenames", async () => {
-    const provider = createSqliteKvStoreProvider({ pathPrefix: dir });
+    const provider = await createSqliteKvStoreProvider({ pathPrefix: dir });
     // Zero uses names like "rep:userId:v1" — colons break Windows
     // and confuse some shell paths.
     const store = provider.create("rep:user_alice:v1");
@@ -150,8 +150,8 @@ describe("isolation across provider instances", () => {
     // This is by design — `pathPrefix` is what makes them "the same
     // provider" logically. Two CLI processes pointing at the same
     // pathPrefix WILL share a replica.
-    const a = createSqliteKvStoreProvider({ pathPrefix: dir });
-    const b = createSqliteKvStoreProvider({ pathPrefix: dir });
+    const a = await createSqliteKvStoreProvider({ pathPrefix: dir });
+    const b = await createSqliteKvStoreProvider({ pathPrefix: dir });
 
     const sa = a.create("shared");
     const w = await sa.write();
@@ -170,8 +170,8 @@ describe("isolation across provider instances", () => {
   it("two providers with DIFFERENT prefixes are isolated", async () => {
     const dirB = mkdtempSync(join(tmpdir(), "zero-kv-isolated-b-"));
     try {
-      const a = createSqliteKvStoreProvider({ pathPrefix: dir });
-      const b = createSqliteKvStoreProvider({ pathPrefix: dirB });
+      const a = await createSqliteKvStoreProvider({ pathPrefix: dir });
+      const b = await createSqliteKvStoreProvider({ pathPrefix: dirB });
 
       const sa = a.create("x");
       const wa = await sa.write();

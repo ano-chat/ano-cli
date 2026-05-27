@@ -118,7 +118,11 @@ export async function createZeroClient(
     return null;
   }
 
-  const kvStore = createSqliteKvStoreProvider({
+  // Async because the kvStore provider pre-loads its SQLite driver
+  // (better-sqlite3 on Node, bun:sqlite on Bun-compiled). Once it
+  // resolves, subsequent store creations are sync per Zero's
+  // `SQLiteStore` factory contract.
+  const kvStore = await createSqliteKvStoreProvider({
     pathPrefix: opts.kvStorePathPrefix,
   });
   const replicaName = `user_${userId}`;

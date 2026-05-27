@@ -4,6 +4,39 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.23.2] — 2026-05-27
+
+### Fixed
+
+- **Bun-compiled binary couldn't load `better-sqlite3`.** The npm
+  postinstall delivers a Bun-compiled native binary on macOS/Linux
+  (the default for `npm i -g @ano-chat/cli`). `bun build --compile`
+  bundles JS only — it doesn't ship Node's native `.node` addons —
+  so `better-sqlite3`'s native binding wasn't reachable at runtime
+  and Zero bootstrap silently failed for everyone on the binary
+  path. v2.23.1's fixes worked for the JS fallback only.
+- **New `src/zero/sqlite-runtime.ts` adapter** detects Bun runtime
+  (`"Bun" in globalThis`) and routes to `bun:sqlite` (a Bun
+  built-in, always available, no native addons required); falls back
+  to `better-sqlite3` under Node. Same `CompatDatabase` surface
+  either way, so `kv-sqlite.ts` doesn't branch on runtime.
+- `tsup.config.ts` marks `bun:sqlite` as external — esbuild can't
+  resolve it (not in node_modules), and the dynamic-import only
+  fires under Bun at runtime, gated by the `globalThis.Bun` check.
+
+### Notes
+
+- `db.pragma(setting)` is preserved through the adapter (routes to
+  better-sqlite3's native `pragma()` on Node; emulated via
+  `exec("PRAGMA …;")` on Bun). An earlier draft used `exec` for
+  both backends; testing showed better-sqlite3's `pragma()` has
+  subtle side effects beyond just running the statement, and
+  replacing it regressed Zero replica sync.
+- Pre-load + sync-create pattern: the kvStore provider awaits the
+  driver import ONCE at Zero bootstrap, then `SQLiteStore`'s
+  per-store synchronous factory contract is satisfied by
+  `syncCreateDatabase` reading from the cached driver.
+
 ## [2.23.1] — 2026-05-27
 
 ### Fixed
