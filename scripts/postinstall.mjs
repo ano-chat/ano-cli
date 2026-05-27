@@ -31,6 +31,7 @@
  * package but the load order across hoisted deps is fragile). Sticking
  * to Node's built-in `fetch` (Node 20+) keeps this script self-contained.
  */
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
@@ -210,6 +211,27 @@ try {
     throw err;
   }
 
+  // 4. Reset background state that could outlive the binary swap.
+  //
+  // Two stale-state hazards that bit users during v2.22.0 → v2.22.1:
+  //
+  //   a) The OLD daemon process is still running. The new binary
+  //      doesn't know about it; the old daemon's protocol version
+  //      may mismatch; eventually the breaker trips and 10 min of
+  //      direct-execution fallback ensue. User experience: "the
+  //      upgrade broke the daemon."
+  //   b) The breaker file `~/.cache/ano/daemon-disabled-until`
+  //      persists from the previous version. If the user installed
+  //      v2.20 → v2.22 in sequence, a v2.20 breaker (sized for the
+  //      buggy 800 ms timeout) still locks out v2.22 for the
+  //      remainder of the 10-min window.
+  //
+  // Both are best-effort cleanup — if either fails (daemon already
+  // gone, breaker file already gone, permission issues), no harm.
+  // The CLI's auto-detect logic respawns the daemon on the next
+  // call.
+  resetDaemonState();
+
   console.log(
     `[ano-cli postinstall] installed native binary for ${process.platform}-${process.arch} (${assetName}, ${(
       binary.length /
@@ -224,4 +246,93 @@ try {
     `[ano-cli postinstall] could not fetch native binary for ${TAG} (${err.message}); keeping JS shim. Re-run \`npm install -g @ano-chat/cli\` later to retry.`,
   );
   process.exit(0);
+}
+
+// ── stale-state cleanup ────────────────────────────────────────────
+
+/**
+ * Best-effort cleanup of background state that could outlive the
+ * binary swap and bite the user post-upgrade. Always exits 0 (no
+ * throw) so postinstall stays non-blocking — these are cleanups,
+ * not requirements.
+ */
+function resetDaemonState() {
+  // 1. Kill any running daemon. We use a heuristic — any process whose
+  //    cmdline ends with `daemon serve` AND is owned by the current
+  //    user. Falls back silently if `ps` / `pgrep` aren't available
+  //    or no matching process exists.
+  killExistingDaemon();
+
+  // 2. Unlink the per-user breaker file. The next `ano` call will
+  //    operate with a clean breaker state. If the daemon is still
+  //    misbehaving (cold-start exceeds the 10 s response timeout),
+  //    the breaker will trip again — but starting from a clean
+  //    state means the user isn't paying for a STALE trip from a
+  //    previous version's bug.
+  clearBreakerFile();
+
+  // 3. Unlink the orphan socket / pid files if present. New daemon
+  //    will recreate them on next spawn; this just makes "ano daemon
+  //    status" report cleanly (no stale-pid annotation).
+  removeOrphanSocketArtifacts();
+}
+
+function killExistingDaemon() {
+  try {
+    // `pgrep -f` matches against the FULL command line. We can't pin
+    // to /opt/homebrew/bin/ano specifically because users install to
+    // various prefixes; the "daemon serve" suffix is the stable part.
+    // Filter to processes owned by the current user via `-u $UID`.
+    const uid = String(process.getuid?.() ?? 0);
+    const out = execFileSync(
+      "pgrep",
+      ["-u", uid, "-f", "ano daemon serve"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    );
+    const pids = out
+      .trim()
+      .split("\n")
+      .map((s) => parseInt(s, 10))
+      .filter((n) => Number.isFinite(n) && n > 0 && n !== process.pid);
+    for (const pid of pids) {
+      try {
+        process.kill(pid, "SIGTERM");
+      } catch {
+        // Process gone or not ours — skip.
+      }
+    }
+  } catch {
+    // pgrep not found (BSD without pgrep, Alpine minimal, etc) — skip.
+    // The new daemon's version-mismatch check will catch the old
+    // daemon on the next call anyway; this is just nicer cleanup.
+  }
+}
+
+function clearBreakerFile() {
+  // Mirror `defaultCircuitBreakerPath` in src/daemon/client.ts.
+  const breakerPath = process.env.XDG_CACHE_HOME
+    ? `${process.env.XDG_CACHE_HOME}/ano/daemon-disabled-until`
+    : `${process.env.HOME || ""}/.cache/ano/daemon-disabled-until`;
+  try {
+    unlinkSync(breakerPath);
+  } catch {
+    // Already gone.
+  }
+}
+
+function removeOrphanSocketArtifacts() {
+  // Mirror `defaultSocketPath` in src/daemon/protocol.ts.
+  const tmp = process.env.TMPDIR || "/tmp";
+  const uid = process.getuid?.() ?? 0;
+  const socketPath = process.env.XDG_RUNTIME_DIR
+    ? `${process.env.XDG_RUNTIME_DIR}/ano-daemon.sock`
+    : `${tmp.replace(/\/$/, "")}/ano-daemon-${uid}.sock`;
+  for (const p of [socketPath, `${socketPath}.pid`]) {
+    try {
+      unlinkSync(p);
+    } catch {
+      // Already gone — fine. Don't follow up here; the new daemon's
+      // own startup unlinks any stale socket before binding.
+    }
+  }
 }
