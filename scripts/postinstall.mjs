@@ -101,10 +101,13 @@ const SUMS_URL = `${RELEASE_BASE}/SHA256SUMS`;
 /**
  * Fetch bytes with an explicit timeout. GitHub Release downloads
  * redirect to S3; if S3 is slow-lorising we don't want the npm
- * install to hang indefinitely. 60s gives plenty of headroom for
- * a ~60 MB binary on a slow connection but bails on stuck transfers.
+ * install to hang indefinitely. 5 min gives headroom for a ~60 MB
+ * binary on a 1 Mbps connection (which is ~8 min in the worst case,
+ * but most "slow" connections hit ~3 Mbps and finish in <3 min) while
+ * still bailing on truly stuck transfers. Verified: 60s was too tight
+ * — npm install on a normal connection hit ~70s and aborted on v2.22.0.
  */
-async function fetchBytes(url, timeoutMs = 60_000) {
+async function fetchBytes(url, timeoutMs = 300_000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
