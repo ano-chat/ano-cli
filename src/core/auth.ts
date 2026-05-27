@@ -8,6 +8,14 @@ export interface ResolvedAuth {
   key: string;
   endpoint: string;
   source: "flag" | "env" | "project" | "global" | "auto-local";
+  /**
+   * Display name of the workspace pinned to the selected credential
+   * (only present for `global` / `auto-local` sources — `ano workspaces
+   * use` writes it to the profile in `credentials.json`). Surfaced via
+   * `ano auth status --agent` so agents can name the workspace without
+   * an extra `ano context` round-trip.
+   */
+  workspace_name?: string;
 }
 
 /**
@@ -58,6 +66,7 @@ export function resolveAuth(globals: GlobalOptions): ResolvedAuth {
         key: named.key,
         endpoint: named.endpoint ?? globals.endpoint,
         source: "global",
+        workspace_name: named.workspace_name,
       };
     }
 
@@ -74,6 +83,7 @@ export function resolveAuth(globals: GlobalOptions): ResolvedAuth {
           key: local.key,
           endpoint: local.endpoint ?? globals.endpoint,
           source: "auto-local",
+          workspace_name: local.workspace_name,
         };
       }
     }
@@ -84,6 +94,7 @@ export function resolveAuth(globals: GlobalOptions): ResolvedAuth {
         key: profile.key,
         endpoint: profile.endpoint ?? globals.endpoint,
         source: "global",
+        workspace_name: profile.workspace_name,
       };
     }
   }

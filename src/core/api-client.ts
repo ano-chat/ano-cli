@@ -19,6 +19,12 @@ export interface Channel {
   type: string;
   topic?: string;
   is_private?: boolean;
+  /** Present when `listChannels({ unread: true })` returned the row. */
+  unread_count?: number;
+  /** Epoch ms of the channel's most recent message; only on `unread: true`. */
+  last_message_at?: number;
+  /** Epoch ms the caller last marked the channel read; only on `unread: true`. */
+  last_read_at?: number | null;
 }
 
 export interface User {
@@ -161,6 +167,14 @@ export interface AnoApiClient {
   listWorkspaces(): Promise<{ workspaces: Workspace[] }>;
   listChannels(opts?: {
     workspace_id?: string;
+    /**
+     * When true, return only channels with `unread_count > 0` for the
+     * caller — server-side filter via the `unread` param on
+     * `/mcp/list_channels`. Each row includes `unread_count`,
+     * `last_message_at`, and `last_read_at`. Sorted by `last_message_at`
+     * descending. Unread-channel triage / "what did I miss?" flows.
+     */
+    unread?: boolean;
   }): Promise<{ channels: Channel[] }>;
   listUsers(opts?: { workspace_id?: string }): Promise<{ users: User[] }>;
   readMessages(opts: {

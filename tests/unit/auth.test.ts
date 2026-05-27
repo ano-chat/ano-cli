@@ -362,4 +362,77 @@ describe("resolveAuth — auto-local in monorepo", () => {
     expect(result.source).toBe("auto-local");
     expect(stderrSpy).not.toHaveBeenCalled();
   });
+
+  describe("workspace_name plumbing", () => {
+    it("named --profile carries the profile's workspace_name through", () => {
+      mockLoadProjectConfig.mockReturnValue(null);
+      mockLoadGlobalCredentials.mockReturnValue({
+        profiles: {
+          acme: {
+            key: "acme-key",
+            workspace_name: "Acme Corp",
+            created_at: "",
+          },
+        },
+      });
+
+      const result = resolveAuth(globals({ profile: "acme" }));
+      expect(result.workspace_name).toBe("Acme Corp");
+      expect(result.source).toBe("global");
+    });
+
+    it("default profile carries workspace_name when set", () => {
+      mockLoadProjectConfig.mockReturnValue(null);
+      mockLoadGlobalCredentials.mockReturnValue({
+        profiles: {
+          default: {
+            key: "default-key",
+            workspace_name: "My Workspace",
+            created_at: "",
+          },
+        },
+      });
+
+      const result = resolveAuth(globals());
+      expect(result.workspace_name).toBe("My Workspace");
+    });
+
+    it("auto-local carries the local profile's workspace_name", () => {
+      withDevLocalRunning();
+      mockLoadProjectConfig.mockReturnValue(null);
+      mockLoadGlobalCredentials.mockReturnValue({
+        profiles: {
+          default: { key: "staging-key", created_at: "" },
+          local: {
+            key: "local-key",
+            workspace_name: "Local Dev",
+            created_at: "",
+          },
+        },
+      });
+
+      const result = resolveAuth(globals());
+      expect(result.source).toBe("auto-local");
+      expect(result.workspace_name).toBe("Local Dev");
+    });
+
+    it("undefined when the profile doesn't have one (back-compat for older configs)", () => {
+      mockLoadProjectConfig.mockReturnValue(null);
+      mockLoadGlobalCredentials.mockReturnValue({
+        profiles: {
+          default: { key: "default-key", created_at: "" },
+        },
+      });
+
+      const result = resolveAuth(globals());
+      expect(result.workspace_name).toBeUndefined();
+    });
+
+    it("never present for flag/env/project sources (no profile context to read from)", () => {
+      process.env.ANO_API_KEY = "env-key";
+      const result = resolveAuth(globals());
+      expect(result.source).toBe("env");
+      expect(result.workspace_name).toBeUndefined();
+    });
+  });
 });
