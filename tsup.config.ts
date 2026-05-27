@@ -24,7 +24,13 @@ export default defineConfig({
   // dependencies). Node 18+ ships undici internally, but we don't have
   // a stable public path to that internal copy — the npm package is
   // the safe option.
-  external: ["undici"],
+  // `bun:sqlite` is a Bun built-in we dynamic-import in
+  // `src/zero/sqlite-runtime.ts` only when running under Bun. esbuild
+  // can't resolve it (not in node_modules) and trying breaks the
+  // build. Mark external so the import stays as-is in the bundle —
+  // at runtime, Bun resolves it natively; Node never hits the
+  // import because the runtime check (`"Bun" in globalThis`) gates it.
+  external: ["undici", "bun:sqlite"],
   // Bundle the latest ano-cli SKILL.md into dist/ at build time. This way
   // a fresh `npm install -g @ano-chat/cli` always ships the skill content
   // matching the CLI version, even if `@ano-chat/skills` isn't hoisted
