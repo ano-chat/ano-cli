@@ -129,9 +129,15 @@ export async function listChannelsViaZero(opts: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const z = handle.zero as any;
   try {
+    // Filter to `type='channel'` to match REST's `listChannels`
+    // surface (REST excludes DMs and spaces — Zero replicates all
+    // three since they share the `channels` table). Without this,
+    // `ano channels list` over Zero returns DMs + spaces too, which
+    // is a regression from the REST behavior.
     let q = z.query.channels
-      .where("is_archived", "=", false)
-      .where("deleted_at", "IS", null);
+      .where("type", "=", "channel")
+      .where("is_archived", "=", false);
+    // soft-deletes filtered at the publication level — not replicated
     if (opts.workspace_id) {
       q = q.where("workspace_id", "=", opts.workspace_id);
     }
@@ -245,7 +251,7 @@ export async function readMessagesViaZero(opts: {
     const rows = await withTimeout(
       z.query.messages
         .where("channel_id", "=", opts.channel_id)
-        .where("deleted_at", "IS", null)
+        // soft-deletes filtered at the publication level — not replicated
         .related("author")
         .orderBy("created_at", "desc")
         .limit(limit)
@@ -309,7 +315,7 @@ export async function searchMessagesViaZero(opts: {
     // and let the caller hit REST.
     let q = z.query.messages
       .where("content", "ILIKE", `%${opts.query}%`)
-      .where("deleted_at", "IS", null)
+      // soft-deletes filtered at the publication level — not replicated
       .related("author")
       .related("channel")
       .orderBy("created_at", "desc")

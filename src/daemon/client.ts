@@ -98,7 +98,14 @@ const CIRCUIT_BREAKER_COOLDOWN_MS = 10 * 60 * 1000;
 
 // `dev` runs sanity checks that need to read the calling process's
 // profile/env directly AND probe daemon state — must run in-process.
-const BYPASS_TOP_LEVEL = new Set(["daemon", "dev"]);
+//
+// `connect` runs the SSE bridge as a LONG-RUNNING server (never
+// returns). Dispatching it through the daemon hangs the daemon's
+// serial-dispatch queue permanently, blocking every subsequent
+// command for the full per-call response timeout (30s) and tripping
+// the circuit breaker. Must spawn its own process. Same shape as
+// `daemon serve` itself.
+const BYPASS_TOP_LEVEL = new Set(["daemon", "dev", "connect"]);
 const BYPASS_NESTED: Array<[string, string]> = [
   ["auth", "login"],
   ["auth", "complete"],

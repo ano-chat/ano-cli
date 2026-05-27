@@ -21,6 +21,15 @@
  *   - Also refresh proactively before token expiry via the auth
  *     provider's internal clock.
  */
+// Install the localStorage polyfill BEFORE importing `@rocicorp/zero`.
+// Zero's replicache foundation touches `globalThis.localStorage` at
+// module-import time on some code paths, so the import order matters.
+// See `localstorage-polyfill.ts` for the full story (Node 22+/Bun
+// ship malformed localStorage globals that break Zero's
+// `idb-databases-store.js`).
+import { installLocalStoragePolyfill } from "./localstorage-polyfill.js";
+installLocalStoragePolyfill();
+
 import { Zero } from "@rocicorp/zero";
 import { statSync } from "node:fs";
 import { cliSchema, type CliSchema } from "./schema.js";

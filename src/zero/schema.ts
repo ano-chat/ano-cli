@@ -35,15 +35,22 @@ import {
 
 // ── core identity / membership ─────────────────────────────────────
 
+// Each column listed below MUST exist in the monorepo's replicated
+// schema (`packages/shared/src/schema/index.ts`). Adding a column
+// here that isn't replicated triggers `SchemaVersionNotSupported` at
+// WebSocket handshake — the entire Zero subsystem refuses to connect.
+//
+// Soft-delete columns like `deleted_at` are filtered at the
+// PUBLICATION level (rows where deleted_at IS NULL never cross
+// replication). Don't try to filter on them in queries — they're
+// pre-filtered server-side. See `.claude/rules/zero-schema.md`.
 const users = table("users")
   .columns({
     id: string(),
     email: string(),
     display_name: string(),
     avatar_url: string().optional(),
-    handle: string().optional(),
     is_deactivated: boolean(),
-    deleted_at: number().optional(),
   })
   .primaryKey("id");
 
@@ -54,7 +61,6 @@ const workspaces = table("workspaces")
     slug: string(),
     logo_url: string().optional(),
     region: string(),
-    deleted_at: number().optional(),
   })
   .primaryKey("id");
 
@@ -82,7 +88,6 @@ const channels = table("channels")
     created_at: number(),
     created_by: string().optional(),
     parent_id: string().optional(),
-    deleted_at: number().optional(),
   })
   .primaryKey("id");
 
@@ -105,10 +110,12 @@ const messages = table("messages")
     user_id: string(),
     content: string(),
     created_at: number(),
-    edited_at: number().optional(),
-    deleted_at: number().optional(),
-    parent_id: string().optional(),
-    thread_root_id: string().optional(),
+    // Monorepo uses `thread_id` (not `thread_root_id`) and
+    // `replied_to_message_id` (not `parent_id`). Soft-delete
+    // (`deleted_at`) is publication-filtered; not replicated.
+    thread_id: string().optional(),
+    replied_to_message_id: string().optional(),
+    is_edited: boolean(),
   })
   .primaryKey("id");
 
@@ -204,6 +211,13 @@ export const cliSchema = createSchema({
     messagesRel,
     workspaceMembersRel,
   ],
+  // Required for `zero.query.tableName.where(...)` syntax. Without
+  // this, Zero v1.5+ returns `undefined` from `zero.query` (the
+  // deprecation gate in `create-builder.ts:createRunnableBuilder`).
+  // The new `zero.run(zql.table.where(...))` API is the recommended
+  // alternative; we keep the legacy form because our reads.ts code
+  // uses it pervasively. Migrating to the new API is a follow-up.
+  enableLegacyQueries: true,
 });
 
 export type CliSchema = typeof cliSchema;

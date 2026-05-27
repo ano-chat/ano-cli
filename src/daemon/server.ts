@@ -332,6 +332,30 @@ function attachConnection(socket: Socket, ctx: ServerContext): void {
         continue;
       }
       if (req.method === "exec") {
+        // Refuse to dispatch long-running commands that would never
+        // return (they're servers, not commands). Without this the
+        // single serial dispatch queue would hang forever and every
+        // subsequent call would time out after RESPONSE_TIMEOUT_MS,
+        // trip the client's circuit breaker, and fall back to direct
+        // execution. The client-side `BYPASS_TOP_LEVEL` set is the
+        // first line of defense, but external callers (the bridge,
+        // `npm exec ano-connect`, third-party scripts) can speak our
+        // socket protocol directly — so the daemon must self-defend.
+        const top = req.argv?.[0];
+        if (top === "connect") {
+          // Use `unknown_method` (not `internal`) so the client falls
+          // back to direct execution WITHOUT tripping its circuit
+          // breaker — the daemon is correctly declining a command
+          // that would hang its dispatch queue, not misbehaving.
+          reply({
+            id: req.id,
+            ok: false,
+            error:
+              "Daemon does not host long-running 'connect' — spawn it as its own process.",
+            code: "unknown_method",
+          });
+          continue;
+        }
         // Reject mismatched CLI versions: the user upgraded the binary
         // but this daemon is running the old code. Self-shutdown after
         // replying so the next call gets a daemon matching the new CLI.

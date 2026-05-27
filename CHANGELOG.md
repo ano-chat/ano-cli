@@ -4,6 +4,55 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.23.1] — 2026-05-27
+
+### Fixed
+
+- **Zero never actually engaged in v2.23.0** — manual smoke test
+  uncovered five distinct failure modes that all caused the daemon
+  to silently fall back to REST despite reporting `zero: connected`:
+  1. **`localStorage` missing** in Node 22+/Bun. Zero's
+     `idb-databases-store` crashes on `getItem is not a function` at
+     construction. Added `installLocalStoragePolyfill()` that runs
+     before `@rocicorp/zero` is imported. Persists `profileId` to
+     `~/.cache/ano/zero/profile-id` so it survives daemon restarts.
+  2. **Vendored schema declared columns that Zero doesn't
+     replicate** (`channels.deleted_at`, `messages.parent_id`,
+     `messages.thread_root_id`, `messages.edited_at`, `users.handle`,
+     `workspaces.deleted_at`). Zero server rejected the WebSocket
+     handshake with `SchemaVersionNotSupported`. Removed those
+     columns; documented that soft-delete is publication-filtered.
+  3. **`enableLegacyQueries` not set on schema.** Zero v1.5+ returns
+     `undefined` from `zero.query.X` unless the schema opts into the
+     legacy query DSL (the new API is `zero.run(zql.X.where(...))`).
+     Added `enableLegacyQueries: true` to `createSchema`. Migrating
+     to the new API is a follow-up.
+  4. **`ano connect` (SSE bridge — a long-running server) was being
+     dispatched THROUGH the daemon's serial queue**, hanging it
+     forever and tripping every client's circuit breaker for 10 min.
+     Added `connect` to the client-side `BYPASS_TOP_LEVEL` set AND
+     a server-side guard in the daemon's `exec` handler that replies
+     with `unknown_method` so external callers (e.g. `npm exec
+ano-connect`) can't hang the daemon either.
+  5. **`channels list` over Zero returned DMs and spaces** because
+     all three types share the `channels` table and the previous
+     Zero query only filtered `is_archived`. Added
+     `where("type", "=", "channel")` to match REST.
+
+- **`messages.body` → `messages.content`** in the vendored schema +
+  reads.ts. The monorepo column is `content`; reading `r.body`
+  returned undefined. Caught during the same audit.
+
+### Notes
+
+- Without these fixes v2.23.0 had `zero: connected` in `daemon
+status` but every read silently went through REST anyway, giving
+  v2.22-equivalent performance instead of the advertised ~10×
+  speedup. v2.23.1 closes the loop.
+- Manually smoke-tested against `api-staging.ano.dev`: cold-call 51 ms,
+  warm-call 48 ms (full Node startup + daemon RPC + local SQLite
+  query); `q.run()` itself resolves in 0–2 ms.
+
 ## [2.23.0] — 2026-05-27
 
 ### Added
