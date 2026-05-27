@@ -136,6 +136,27 @@ export function registerDaemon(parent: Command): void {
             `cache:   ${r.cache.entries} entries across ${r.cache.origins} origin${r.cache.origins === 1 ? "" : "s"}; ${r.cache.hits} hits / ${r.cache.misses} misses (${rate}); ${r.cache.invalidations} invalidations`,
           );
         }
+        if (r.zero) {
+          // Zero replica status: connection state + replica file size
+          // so the user can verify Zero is actually doing useful work.
+          const sizeBytes = r.zero.replicaSizeBytes;
+          const sizeStr =
+            sizeBytes === null
+              ? "—"
+              : sizeBytes < 1024
+                ? `${sizeBytes} B`
+                : sizeBytes < 1024 * 1024
+                  ? `${Math.round(sizeBytes / 1024)} KB`
+                  : `${(sizeBytes / 1024 / 1024).toFixed(1)} MB`;
+          lines.push(`zero:    ${r.zero.status} (replica: ${sizeStr})`);
+        } else {
+          // Zero is off. Surface the opt-in hint once so users know
+          // about the fast path. (Once Zero defaults on, this branch
+          // means "Zero failed to bootstrap" and the hint changes.)
+          lines.push(
+            `zero:    off (set \`ANO_USE_ZERO=1\` + restart daemon for ~10× faster reads)`,
+          );
+        }
         if (isCircuitBreakerTripped()) {
           // The daemon answered ping but a prior call tripped the
           // breaker — surface that explicitly so the user knows CLI

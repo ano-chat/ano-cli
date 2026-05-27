@@ -44,11 +44,12 @@ export interface ZeroClientOptions {
   /** Long-lived CLI API key (`ano_usr_*`). */
   apiKey: string;
   /**
-   * User ID — the Zero client's `userID` context. The daemon resolves
-   * this once at startup from the API key (server-side mint endpoint
-   * implicitly tells us via the JWT's `sub` claim).
+   * Optional explicit userId. If omitted, we extract `sub` from the
+   * minted JWT (the server's `issueZeroSyncToken` puts the userId
+   * there). Passing it explicitly is faster (skips JWT decode) but
+   * carries the risk of mismatch if the caller is wrong.
    */
-  userId: string;
+  userId?: string;
   /** Optional logger; default is no-op. */
   log?: (event: string, meta: Record<string, unknown>) => void;
   /** Override fetch (tests). */
@@ -97,14 +98,24 @@ export async function createZeroClient(
     return null;
   }
 
+  // Resolve userId from the JWT's `sub` claim if not explicitly
+  // given. The server's `issueZeroSyncToken` always puts userId in
+  // `sub`. Decoding (NOT verifying — we trust the server we just
+  // got the token from) is enough to read it.
+  const userId = opts.userId ?? extractSubFromJwt(initialToken);
+  if (!userId) {
+    opts.log?.("zero-client: could not resolve userId from JWT", {});
+    return null;
+  }
+
   const kvStore = createSqliteKvStoreProvider({
     pathPrefix: opts.kvStorePathPrefix,
   });
-  const replicaName = `user_${opts.userId}`;
+  const replicaName = `user_${userId}`;
   const replicaPath = defaultReplicaPath(replicaName);
 
   const zero = new Zero<CliSchema>({
-    userID: opts.userId,
+    userID: userId,
     server: opts.cacheURL,
     schema: cliSchema,
     auth: initialToken,
@@ -182,4 +193,27 @@ export async function createZeroClient(
 export function isZeroEnabled(): boolean {
   const v = process.env.ANO_USE_ZERO;
   return v === "1" || v === "true";
+}
+
+/**
+ * Decode the `sub` claim from a JWT without verifying the signature.
+ * Safe to do because we just minted this token from a server we
+ * trust; the JWT integrity is enforced by the sync server when we
+ * use the token. We only need to read the payload to learn the
+ * userId.
+ *
+ * Returns `null` on any parse error.
+ */
+function extractSubFromJwt(token: string): string | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    // Base64url decode the middle (payload) segment.
+    const padding = "=".repeat((4 - (parts[1].length % 4)) % 4);
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/") + padding;
+    const payload = JSON.parse(Buffer.from(base64, "base64").toString("utf8"));
+    return typeof payload.sub === "string" ? payload.sub : null;
+  } catch {
+    return null;
+  }
 }

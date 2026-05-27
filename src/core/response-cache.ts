@@ -52,6 +52,24 @@ const READ_ALLOWLIST = new Set<string>([
   // often enough that the post-mutation read should always be fresh.
 ]);
 
+/**
+ * Subset of the allowlist that's now served from Zero's local replica
+ * in Phase 2 (`apps/desktop` … no, the CLI — `src/zero/reads.ts`).
+ * When Zero is active, these paths only hit retry.ts as the REST
+ * fallback for a Zero miss (cold replica, timeout, error). In that
+ * case, the user wants a FRESH server read, not a 5s-stale cached
+ * one — so cacheGet skips this path entirely when Zero is active.
+ *
+ * When Zero is OFF (ANO_USE_ZERO not set), behavior is unchanged:
+ * these paths still get cached at the REST layer.
+ */
+const ZERO_BACKED_PATHS = new Set<string>(["/list_channels", "/list_users"]);
+
+function isZeroActiveForReads(): boolean {
+  const v = process.env.ANO_USE_ZERO;
+  return v === "1" || v === "true";
+}
+
 interface Entry {
   status: number;
   headers: Record<string, string>;
@@ -115,6 +133,14 @@ export function cacheGet(
   if (!parsed) return undefined;
   const { origin, path } = parsed;
   if (!READ_ALLOWLIST.has(path)) return undefined;
+  // Phase 2 carve-out: when Zero is active, these paths are served
+  // from the local replica and only hit retry.ts on Zero miss.
+  // Returning a cached value here would mask the Zero miss with a
+  // stale REST response; better to fall through and re-hit the
+  // server for a fresh result.
+  if (isZeroActiveForReads() && ZERO_BACKED_PATHS.has(path)) {
+    return undefined;
+  }
   const oc = cacheByOrigin.get(origin);
   if (!oc) {
     stats.misses++;
@@ -151,6 +177,9 @@ export function cacheSet(
   if (!parsed) return;
   const { origin, path } = parsed;
   if (!READ_ALLOWLIST.has(path)) return;
+  // Mirror cacheGet: when Zero is active these paths don't get cached
+  // — would only ever serve a stale value during a Zero outage.
+  if (isZeroActiveForReads() && ZERO_BACKED_PATHS.has(path)) return;
   let oc = cacheByOrigin.get(origin);
   if (!oc) {
     oc = { entries: new Map() };

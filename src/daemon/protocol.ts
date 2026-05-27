@@ -115,6 +115,18 @@ export interface PingResponse {
     origins: number;
     entries: number;
   };
+  /**
+   * Local Zero replica state. Optional so older daemons (Zero disabled
+   * or feature-flagged off) just omit it.
+   */
+  zero?: {
+    /** Connection status, e.g. "connected", "connecting", "needs-auth". */
+    status: string;
+    /** Absolute path of the SQLite replica file on disk. */
+    replicaPath: string;
+    /** Size of the replica file in bytes, or null if not yet bootstrapped. */
+    replicaSizeBytes: number | null;
+  };
 }
 
 export interface DaemonError {

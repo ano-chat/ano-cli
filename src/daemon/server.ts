@@ -46,6 +46,12 @@ import { registerAllCommands } from "../cli/register.js";
 import { loadGlobalCredentials, loadProjectConfig } from "../core/config.js";
 import { prewarmConnection } from "../core/http-agent.js";
 import { cacheStats } from "../core/response-cache.js";
+import { createZeroClient, isZeroEnabled } from "../zero/client.js";
+import {
+  setActiveZeroClient,
+  getActiveZeroClient,
+} from "../zero/active-client.js";
+import { deriveCacheUrl } from "../zero/cache-url.js";
 
 declare const __VERSION__: string;
 const DAEMON_CLI_VERSION =
@@ -163,6 +169,68 @@ async function dispatch(req: ExecRequest): Promise<DispatchResult> {
  * warm up, and the user will see normal cold-start latency on the
  * first call.
  */
+/**
+ * Bootstrap a Zero client for the daemon if `ANO_USE_ZERO=1`. Reads
+ * the user's default profile (key + endpoint), derives the regional
+ * sync URL, mints a JWT via `/api/cli/zero-jwt`, and stashes the
+ * resulting handle in the module-scoped active-client registry.
+ *
+ * Best-effort: any failure (no profile, mint fails, network down)
+ * leaves the registry empty and commands fall back to REST. The
+ * daemon does NOT block startup on Zero — listen() returns before
+ * this runs.
+ */
+async function bootstrapZero(): Promise<void> {
+  if (!isZeroEnabled()) return;
+  // If we already have an active client (re-bootstrap), dispose it
+  // first to avoid leaking the previous Zero instance.
+  const existing = getActiveZeroClient();
+  if (existing) {
+    try {
+      await existing.dispose();
+    } catch {
+      // ignore
+    }
+    setActiveZeroClient(null);
+  }
+
+  let apiKey: string | undefined;
+  let endpoint: string | undefined;
+  try {
+    const project = loadProjectConfig();
+    if (project?.endpoint) endpoint = project.endpoint;
+    if (project?.key) apiKey = project.key;
+    if (!apiKey || !endpoint) {
+      const creds = loadGlobalCredentials();
+      const profile = creds?.profiles.default;
+      if (!apiKey && profile?.key) apiKey = profile.key;
+      if (!endpoint && profile?.endpoint) endpoint = profile.endpoint;
+    }
+  } catch {
+    return;
+  }
+  if (!apiKey || !endpoint) return;
+
+  const cacheURL = deriveCacheUrl(endpoint);
+  if (!cacheURL) return;
+
+  try {
+    const handle = await createZeroClient({
+      apiBaseUrl: endpoint,
+      cacheURL,
+      apiKey,
+      log: () => {
+        // No-op for now — daemon doesn't have a structured logger
+        // exposed. Hooking up pino is a follow-up.
+      },
+    });
+    if (handle) setActiveZeroClient(handle);
+  } catch {
+    // Any synchronous throw from createZeroClient is fatal for Zero
+    // but not for the daemon. Leave active-client unset.
+  }
+}
+
 async function prewarmDefaultEndpoint(): Promise<void> {
   let endpoint: string | undefined;
   try {
@@ -220,6 +288,8 @@ function attachConnection(socket: Socket, ctx: ServerContext): void {
         continue;
       }
       if (req.method === "ping") {
+        const zh = getActiveZeroClient();
+        const zeroStats = zh ? zh.stats() : undefined;
         reply({
           id: req.id,
           ok: true,
@@ -229,6 +299,15 @@ function attachConnection(socket: Socket, ctx: ServerContext): void {
           v: PROTOCOL_VERSION,
           cliVersion: DAEMON_CLI_VERSION,
           cache: cacheStats(),
+          ...(zeroStats
+            ? {
+                zero: {
+                  status: zeroStats.connectionStatus,
+                  replicaPath: zeroStats.replicaPath,
+                  replicaSizeBytes: zeroStats.replicaSizeBytes,
+                },
+              }
+            : {}),
         });
         continue;
       }
@@ -419,6 +498,18 @@ export function startDaemon(opts: DaemonStartOptions = {}): {
     } catch {
       // ignore
     }
+    // Fire-and-forget Zero disposal. We don't await — process.exit
+    // happens immediately. Zero's own shutdown handlers (replica
+    // WAL checkpoint, pending mutation flush) run synchronously
+    // enough inside `zero.close()` to be safe.
+    const zh = getActiveZeroClient();
+    if (zh) {
+      setActiveZeroClient(null);
+      // Swallow rejection — dispose is best-effort and the process
+      // is exiting anyway. Without `.catch`, an error here would
+      // become an unhandled rejection right before exit.
+      zh.dispose().catch(() => {});
+    }
     if (opts._onShutdown) opts._onShutdown();
     else process.exit(0);
   };
@@ -441,6 +532,11 @@ export function startDaemon(opts: DaemonStartOptions = {}): {
     // Skipped in tests where prewarm would just be noise.
     if (!opts.skipPrewarm) {
       void prewarmDefaultEndpoint();
+      // Belt + suspenders: bootstrapZero() has try/catches around
+      // every external call, but attach a swallow here too so an
+      // unanticipated throw doesn't surface as an unhandled
+      // rejection that crashes the daemon.
+      bootstrapZero().catch(() => {});
     }
   });
   ctx.server.on("error", (err: NodeJS.ErrnoException) => {

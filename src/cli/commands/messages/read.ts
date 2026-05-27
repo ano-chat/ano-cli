@@ -4,6 +4,7 @@ import { withErrorHandler } from "../../middleware/error-handler.js";
 import { resolveAuth } from "../../../core/auth.js";
 import { createApiClient } from "../../../core/api-client.js";
 import { output } from "../../../core/output.js";
+import { readMessagesViaZero } from "../../../zero/reads.js";
 
 export function registerReadMessages(parent: Command): void {
   parent
@@ -14,12 +15,21 @@ export function registerReadMessages(parent: Command): void {
     .action(
       withErrorHandler(async (opts, cmd) => {
         const globals = cmd.optsWithGlobals() as GlobalOptions;
-        const auth = resolveAuth(globals);
-        const client = createApiClient(auth);
-        const result = await client.readMessages({
+        const limit = parseInt(opts.limit, 10);
+        const zeroResult = await readMessagesViaZero({
           channel_id: opts.channel,
-          limit: parseInt(opts.limit, 10),
+          limit,
         });
+        const result =
+          zeroResult ??
+          (await (async () => {
+            const auth = resolveAuth(globals);
+            const client = createApiClient(auth);
+            return await client.readMessages({
+              channel_id: opts.channel,
+              limit,
+            });
+          })());
 
         const messages = result.messages.map((m) => ({
           ...m,
