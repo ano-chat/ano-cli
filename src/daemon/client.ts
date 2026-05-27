@@ -57,34 +57,36 @@ const PING_TIMEOUT_MS = 1000;
  * `tripCircuitBreaker`) so the next call bypasses the daemon entirely
  * for the cooldown window.
  *
- * Sized at 10 s. The history of this value tells the story:
+ * Sized at 30 s. The history of this value (and why we keep growing it):
  *
- *  - v2.20.0: 800 ms. Sized for local-daemon p99 (~50 ms). Tripped
- *    on normal cloud calls; UX was "the daemon mysteriously doesn't
- *    work" because the breaker locked for 10 min after one slow call.
- *  - v2.21.1: 3000 ms. Tripped on first-dispatch cold-start to a
- *    transatlantic origin (measured 3.6 s).
- *  - v2.21.2: 5000 ms. Tripped on the ABSOLUTE worst cold case
- *    (daemon just spawned, breaker just cleared, no prior TLS to
- *    api-us, module tree not loaded yet — 5.5 s observed).
- *  - v2.21.3 (this commit): 10 000 ms. The original v2.19 value —
- *    in retrospect, that value was right for cloud-target daemons.
- *    The v2.20 tightening was a misdiagnosis: the problem wasn't the
- *    timeout, it was the LACK of a breaker. With the breaker in place,
- *    10 s on a wedged daemon happens at most once per 10-min cooldown
- *    (and the daemon is force-killed so subsequent calls go direct).
+ *  - v2.20.0:  800 ms — sized for local-daemon p99 (~50 ms).
+ *  - v2.21.1: 3 000 ms — local was fine; tripped on transatlantic cold.
+ *  - v2.21.2: 5 000 ms — tripped on absolute worst cloud cold (5.5 s).
+ *  - v2.21.3: 10 000 ms — original v2.19 value; cloud cold-start OK.
+ *  - v2.22.x: 30 000 ms — STILL tripped intermittently in v2.21.3
+ *    against a LOCAL daemon (localhost:3001 dev:local). Cause: the
+ *    Bun-compiled binary's first dispatch can take 10+ s in the
+ *    cold case (module tree JIT-load + first commander parse).
+ *    This isn't network-bound; it's runtime cold-start. Pushing to
+ *    30 s absorbs the worst observed cold-start while still catching
+ *    truly wedged daemons.
  *
  * The job of this timeout: catch a daemon that has completely stopped
- * replying (wedged dispatch loop, crashed mid-dispatch, etc). NOT to
- * declare "the daemon is slow." Cold-start to a transatlantic origin
- * is allowed to be slow.
+ * replying (wedged dispatch loop, crashed mid-dispatch). NOT to declare
+ * "the daemon is slow." Cold first-dispatch is allowed to be slow.
  *
- * Worst case becomes 10 s × once per 10-min cooldown window, then
- * direct execution (~150 ms cold Node) for the cooldown. That's the
- * v2.19 behavior; we're keeping the v2.20 breaker safety net but
- * restoring the v2.19 timeout sensitivity.
+ * Worst case: 30 s × once per 10-min cooldown. With the breaker, that
+ * happens once and then direct execution takes over for the cooldown
+ * window. Subsequent CLI calls in the same session get ~150 ms cold
+ * Node, not 30 s repeats.
+ *
+ * Future work: a daemon-side pre-warm at `serve` startup (run
+ * createProgram + registerAllCommands + a no-op parse before the
+ * socket starts accepting connections) would eliminate the cold-
+ * dispatch class entirely. Tracked separately — for now, the
+ * 30 s headroom restores the v2.19-era safety.
  */
-const RESPONSE_TIMEOUT_MS = 10_000;
+const RESPONSE_TIMEOUT_MS = 30_000;
 /**
  * Circuit-breaker cooldown. After a single slow response (or other
  * daemon-side fault that suggests the warm process is in a bad state),
