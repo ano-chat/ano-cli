@@ -60,14 +60,16 @@ const READ_ALLOWLIST = new Set<string>([
  * case, the user wants a FRESH server read, not a 5s-stale cached
  * one — so cacheGet skips this path entirely when Zero is active.
  *
- * When Zero is OFF (ANO_USE_ZERO not set), behavior is unchanged:
+ * When Zero is OFF (`ANO_DISABLE_ZERO=1`), behavior is unchanged:
  * these paths still get cached at the REST layer.
  */
 const ZERO_BACKED_PATHS = new Set<string>(["/list_channels", "/list_users"]);
 
 function isZeroActiveForReads(): boolean {
-  const v = process.env.ANO_USE_ZERO;
-  return v === "1" || v === "true";
+  // Mirror the gate in src/zero/active-client.ts. Default ON; opt
+  // out with ANO_DISABLE_ZERO=1.
+  const v = process.env.ANO_DISABLE_ZERO;
+  return !(v === "1" || v === "true");
 }
 
 interface Entry {

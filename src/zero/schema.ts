@@ -103,7 +103,7 @@ const messages = table("messages")
     id: string(),
     channel_id: string(),
     user_id: string(),
-    body: string(),
+    content: string(),
     created_at: number(),
     edited_at: number().optional(),
     deleted_at: number().optional(),

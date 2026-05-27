@@ -21,11 +21,17 @@ import {
   cacheClear,
 } from "../../src/core/response-cache.js";
 
+// These tests exercise the debug-cache telemetry against
+// /list_channels. With v2.23.0's default-on Zero, the cache refuses
+// to serve that path — so the test would see MISS not HIT. Opt out
+// of Zero to restore pre-v2.23.0 cache behavior for this suite.
+const origDisableZero = process.env.ANO_DISABLE_ZERO;
 beforeEach(() => {
   delete process.env.ANO_DEBUG_CACHE;
   _resetDebugCacheForTests();
   cacheClear();
   _resetCacheStatsForTests();
+  process.env.ANO_DISABLE_ZERO = "1";
 });
 
 afterEach(() => {
@@ -33,6 +39,8 @@ afterEach(() => {
   _resetDebugCacheForTests();
   vi.restoreAllMocks();
   _setFetchImplForTests(_originalFetchImpl);
+  if (origDisableZero === undefined) delete process.env.ANO_DISABLE_ZERO;
+  else process.env.ANO_DISABLE_ZERO = origDisableZero;
 });
 
 describe("ANO_DEBUG_CACHE telemetry", () => {

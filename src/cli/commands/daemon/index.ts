@@ -149,12 +149,30 @@ export function registerDaemon(parent: Command): void {
                   ? `${Math.round(sizeBytes / 1024)} KB`
                   : `${(sizeBytes / 1024 / 1024).toFixed(1)} MB`;
           lines.push(`zero:    ${r.zero.status} (replica: ${sizeStr})`);
+          // Surface schema-drifted tables when present. These reads
+          // are falling back to REST until daemon restart; user can
+          // either ignore (one-time slowdown for one table) or
+          // update the CLI if a newer version corrects the vendored
+          // schema.
+          if (r.zero.drifted && r.zero.drifted.length > 0) {
+            for (const d of r.zero.drifted) {
+              lines.push(
+                `         drift: ${d.table} — ${d.reason} (REST fallback active for this table)`,
+              );
+            }
+          }
         } else {
-          // Zero is off. Surface the opt-in hint once so users know
-          // about the fast path. (Once Zero defaults on, this branch
-          // means "Zero failed to bootstrap" and the hint changes.)
+          // Zero is off. Either the user opted out (ANO_DISABLE_ZERO)
+          // or bootstrap silently failed (mint endpoint unreachable,
+          // no default profile, etc.). Surface a hint so users know
+          // they're on the slow path.
+          const optedOut =
+            process.env.ANO_DISABLE_ZERO === "1" ||
+            process.env.ANO_DISABLE_ZERO === "true";
           lines.push(
-            `zero:    off (set \`ANO_USE_ZERO=1\` + restart daemon for ~10× faster reads)`,
+            optedOut
+              ? `zero:    off (ANO_DISABLE_ZERO is set; unset + restart daemon to re-enable)`
+              : `zero:    off (bootstrap failed — mint endpoint unreachable from your endpoint?)`,
           );
         }
         if (isCircuitBreakerTripped()) {

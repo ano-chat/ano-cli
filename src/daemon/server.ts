@@ -50,6 +50,8 @@ import { createZeroClient, isZeroEnabled } from "../zero/client.js";
 import {
   setActiveZeroClient,
   getActiveZeroClient,
+  getDriftedTables,
+  getLastConnectionStatus,
 } from "../zero/active-client.js";
 import { deriveCacheUrl } from "../zero/cache-url.js";
 
@@ -170,7 +172,7 @@ async function dispatch(req: ExecRequest): Promise<DispatchResult> {
  * first call.
  */
 /**
- * Bootstrap a Zero client for the daemon if `ANO_USE_ZERO=1`. Reads
+ * Bootstrap a Zero client for the daemon (unless `ANO_DISABLE_ZERO=1`). Reads
  * the user's default profile (key + endpoint), derives the regional
  * sync URL, mints a JWT via `/api/cli/zero-jwt`, and stashes the
  * resulting handle in the module-scoped active-client registry.
@@ -290,6 +292,7 @@ function attachConnection(socket: Socket, ctx: ServerContext): void {
       if (req.method === "ping") {
         const zh = getActiveZeroClient();
         const zeroStats = zh ? zh.stats() : undefined;
+        const drifted = getDriftedTables();
         reply({
           id: req.id,
           ok: true,
@@ -302,9 +305,15 @@ function attachConnection(socket: Socket, ctx: ServerContext): void {
           ...(zeroStats
             ? {
                 zero: {
-                  status: zeroStats.connectionStatus,
+                  // Prefer the live connection-state registry —
+                  // `zeroStats.connectionStatus` is a local cache in
+                  // client.ts captured at the same time, but the
+                  // active-client registry is the canonical source
+                  // (also consulted by `activeZeroOrNull()`).
+                  status: getLastConnectionStatus(),
                   replicaPath: zeroStats.replicaPath,
                   replicaSizeBytes: zeroStats.replicaSizeBytes,
+                  ...(drifted.length > 0 ? { drifted } : {}),
                 },
               }
             : {}),

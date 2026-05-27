@@ -22,9 +22,14 @@ import {
   cacheClear,
 } from "../../src/core/response-cache.js";
 
+// These tests exercise cached responses for /list_channels. With
+// v2.23.0's default-on Zero, that path skips the cache — so the
+// "cache hit" assertions would fail. Opt out for this suite.
+const origDisableZero = process.env.ANO_DISABLE_ZERO;
 beforeEach(() => {
   cacheClear();
   _resetCacheStatsForTests();
+  process.env.ANO_DISABLE_ZERO = "1";
 });
 
 afterEach(() => {
@@ -32,6 +37,8 @@ afterEach(() => {
   _setFetchImplForTests(_originalFetchImpl);
   cacheClear();
   _resetCacheStatsForTests();
+  if (origDisableZero === undefined) delete process.env.ANO_DISABLE_ZERO;
+  else process.env.ANO_DISABLE_ZERO = origDisableZero;
 });
 
 describe("cached response header sanitization", () => {

@@ -7,10 +7,10 @@
  * `sync-us.ano.dev` (or `sync-eu.ano.dev`) origin maintains real-time
  * freshness.
  *
- * Feature gate: this only runs when ANO_USE_ZERO=1. Until that flag
- * defaults on (probably v2.23.x after staging soak), the CLI's
- * behavior is unchanged — daemon doesn't construct Zero, all commands
- * go through the existing REST + cache path.
+ * Feature gate: default ON in v2.23.0. Opt out with
+ * `ANO_DISABLE_ZERO=1`. When Zero's mint endpoint isn't reachable
+ * (e.g. user pointed at prod before Phase 1 has shipped there),
+ * bootstrap fails silently and every command falls back to REST.
  *
  * Auth flow:
  *   - Mint a fresh JWT (via /api/cli/zero-jwt) BEFORE constructing
@@ -29,6 +29,7 @@ import {
   defaultReplicaPath,
 } from "./kv-sqlite.js";
 import { createZeroAuthProvider, type ZeroAuthProvider } from "./auth.js";
+import { setLastConnectionStatus } from "./active-client.js";
 
 export interface ZeroClientOptions {
   /**
@@ -129,10 +130,20 @@ export async function createZeroClient(
   let lastStatus: string = "init";
   // ConnectionState is a discriminated union by `name`:
   //   'disconnected' | 'connecting' | 'connected' | 'needs-auth' | 'error' | 'closed'
+  //
+  // Every transition is also mirrored to the module-scoped
+  // `setLastConnectionStatus()` registry in active-client.ts.
+  // `activeZeroOrNull()` consults that registry to refuse the Zero
+  // path while the WebSocket is dropped — so read commands transparently
+  // fall back to REST during a disconnect (websocket-drop fix).
   zero.connection.state.subscribe((state) => {
     lastStatus = state.name;
+    setLastConnectionStatus(state.name);
     opts.log?.("zero-client: connection state", { name: state.name });
     if (state.name === "needs-auth") {
+      // JWT expired or server explicitly demanded fresh auth. Mint a
+      // new one and re-supply via connection.connect — this is the
+      // canonical Zero pattern.
       void (async () => {
         const fresh = await auth.forceRefresh();
         if (fresh) {
@@ -145,6 +156,13 @@ export async function createZeroClient(
           }
         }
       })();
+    } else if (state.name === "error" || state.name === "disconnected") {
+      // Zero's internal retry/reconnect handles the reconnect itself
+      // (exponential backoff + jitter). We surface the state so reads
+      // fall back to REST in the meantime; once the state flips back
+      // to "connected", reads return to the Zero path automatically.
+      // No action needed here beyond the status mirror above — kept
+      // as an explicit branch so future telemetry hooks have a place.
     }
   });
 
@@ -186,13 +204,25 @@ export async function createZeroClient(
 }
 
 /**
- * Whether to construct the Zero client at all. Gated by env var so
- * we can ship the scaffold without changing user-facing behavior
- * until we're ready.
+ * Whether to construct the Zero client at all.
+ *
+ * Default ON. Opt out with `ANO_DISABLE_ZERO=1` (or `=true`). The
+ * env var is checked at daemon startup; restart the daemon after
+ * setting it.
+ *
+ * Safe to default on because:
+ *   - If Zero's JWT mint endpoint isn't reachable (e.g. user is
+ *     pointed at prod and `/api/cli/zero-jwt` hasn't shipped there
+ *     yet), bootstrap fails silently and every command falls back
+ *     to REST — identical behavior to pre-v2.23.0.
+ *   - If Zero connects but a query/mutation errors, the helper
+ *     returns null and falls back to REST.
+ *   - Bootstrap is wrapped in `.catch(() => {})` so it can't crash
+ *     the daemon.
  */
 export function isZeroEnabled(): boolean {
-  const v = process.env.ANO_USE_ZERO;
-  return v === "1" || v === "true";
+  const v = process.env.ANO_DISABLE_ZERO;
+  return !(v === "1" || v === "true");
 }
 
 /**

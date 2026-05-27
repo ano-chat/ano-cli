@@ -1,12 +1,13 @@
 /**
- * Phase 2 carve-out: when `ANO_USE_ZERO=1`, the response cache must
- * NOT serve `/list_channels` and `/list_users` from its 5s TTL store.
- * Those endpoints are Zero-backed; the REST path only fires on Zero
- * miss, and in that case we want a fresh server read, not a stale
- * cached value that would mask the Zero outage.
+ * Phase 2 carve-out: by default in v2.23.0+ (`ANO_DISABLE_ZERO` unset)
+ * the response cache must NOT serve `/list_channels` and `/list_users`
+ * from its 5s TTL store. Those endpoints are Zero-backed; the REST
+ * path only fires on Zero miss, and in that case we want a fresh
+ * server read, not a stale cached value that would mask the Zero
+ * outage.
  *
- * When `ANO_USE_ZERO` is unset, behavior is unchanged — cache fires
- * for the same paths.
+ * When `ANO_DISABLE_ZERO=1`, behavior reverts to caching those
+ * paths the same as the rest of the allowlist.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -20,11 +21,13 @@ import {
   cacheStats,
 } from "../../src/core/response-cache.js";
 
-const origEnv = process.env.ANO_USE_ZERO;
+const origEnv = process.env.ANO_DISABLE_ZERO;
 
 beforeEach(() => {
   cacheClear();
   _resetCacheStatsForTests();
+  // Default Zero-on; tests that need Zero off set ANO_DISABLE_ZERO.
+  delete process.env.ANO_DISABLE_ZERO;
 });
 
 afterEach(() => {
@@ -32,13 +35,12 @@ afterEach(() => {
   _setFetchImplForTests(_originalFetchImpl);
   cacheClear();
   _resetCacheStatsForTests();
-  if (origEnv === undefined) delete process.env.ANO_USE_ZERO;
-  else process.env.ANO_USE_ZERO = origEnv;
+  if (origEnv === undefined) delete process.env.ANO_DISABLE_ZERO;
+  else process.env.ANO_DISABLE_ZERO = origEnv;
 });
 
 describe("cache Zero-carveout", () => {
-  it("does NOT cache /list_channels when ANO_USE_ZERO=1", async () => {
-    process.env.ANO_USE_ZERO = "1";
+  it("does NOT cache /list_channels by default (Zero on)", async () => {
     let fetchCalls = 0;
     _setFetchImplForTests(async () => {
       fetchCalls++;
@@ -64,8 +66,8 @@ describe("cache Zero-carveout", () => {
     expect(cacheStats().entries).toBe(0);
   });
 
-  it("DOES cache /list_channels when Zero is OFF (default behavior)", async () => {
-    delete process.env.ANO_USE_ZERO;
+  it("DOES cache /list_channels when ANO_DISABLE_ZERO=1", async () => {
+    process.env.ANO_DISABLE_ZERO = "1";
     let fetchCalls = 0;
     _setFetchImplForTests(async () => {
       fetchCalls++;
@@ -92,8 +94,7 @@ describe("cache Zero-carveout", () => {
     expect(cacheStats().entries).toBe(1);
   });
 
-  it("still caches non-Zero-backed paths (/list_workspaces) when ANO_USE_ZERO=1", async () => {
-    process.env.ANO_USE_ZERO = "1";
+  it("still caches non-Zero-backed paths (/list_workspaces) by default", async () => {
     let fetchCalls = 0;
     _setFetchImplForTests(async () => {
       fetchCalls++;

@@ -20,10 +20,59 @@
  * SQLite-local and complete in microseconds; the timeout is only
  * load-bearing during the cold-start window.
  */
-import { activeZeroOrNull } from "./active-client.js";
+import {
+  activeZeroOrNull,
+  isTableDrifted,
+  registerSchemaDrift,
+} from "./active-client.js";
 import type { Channel, User, Message } from "../core/api-client.js";
 
 const ZERO_READ_TIMEOUT_MS = 1500;
+
+/**
+ * Schema-drift detector. Pass the table name + the expected column
+ * names this helper reads off the row. If ANY expected column is
+ * missing on the sample row, the table is registered as drifted
+ * (subsequent reads on that table skip Zero), and this function
+ * returns false to signal the caller should fall back to REST.
+ *
+ * Returns true (rows are usable) when:
+ *   - The table has already been flagged drifted → caller already
+ *     fell back; this function returns false to keep that going
+ *   - No rows to sample → can't determine drift, returns true and
+ *     hopes for the best (a column-missing bug surfaces on first
+ *     non-empty result)
+ *   - Sample row has every expected column → no drift, proceed
+ *
+ * Returns false (caller MUST fall back to REST) when:
+ *   - Any expected column is missing on the sample row → drift
+ *     registered; future reads on this table skip Zero
+ *
+ * This is the runtime mitigation for the silent-failure class where
+ * the monorepo renames a column the CLI's vendored schema still
+ * declares. Without it, reads silently return `undefined` for the
+ * missing column (the `messages.body` → `messages.content` bug
+ * caught manually in v2.23.0 development).
+ */
+function validateRowShape(
+  table: string,
+  rows: ReadonlyArray<Record<string, unknown>>,
+  expectedColumns: ReadonlyArray<string>,
+): boolean {
+  if (isTableDrifted(table)) return false;
+  if (rows.length === 0) return true;
+  const sample = rows[0];
+  for (const col of expectedColumns) {
+    if (!(col in sample)) {
+      registerSchemaDrift(
+        table,
+        `column '${col}' missing on returned row (vendored schema out of sync with server)`,
+      );
+      return false;
+    }
+  }
+  return true;
+}
 
 /**
  * Wrap any Zero query promise with a timeout. Returns `null` if the
@@ -74,6 +123,7 @@ export async function listChannelsViaZero(opts: {
 }): Promise<{ channels: Channel[] } | null> {
   const handle = activeZeroOrNull();
   if (!handle) return null;
+  if (isTableDrifted("channels")) return null;
 
   // Zero's `query.X` exposes Query<T>; `.run()` materializes once.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -87,6 +137,16 @@ export async function listChannelsViaZero(opts: {
     }
     const rows = await withTimeout(q.run());
     if (rows === null) return null;
+    if (
+      !validateRowShape("channels", rows as Record<string, unknown>[], [
+        "id",
+        "name",
+        "type",
+        "is_private",
+      ])
+    ) {
+      return null;
+    }
     return {
       channels: (rows as ChannelRow[]).map((r) => ({
         id: r.id,
@@ -111,6 +171,9 @@ export async function listUsersViaZero(opts: {
   const handle = activeZeroOrNull();
   if (!handle) return null;
   if (!opts.workspace_id) return null; // Zero requires a workspace scope
+  if (isTableDrifted("workspace_members") || isTableDrifted("users")) {
+    return null;
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const z = handle.zero as any;
@@ -123,6 +186,27 @@ export async function listUsersViaZero(opts: {
         .run(),
     );
     if (rows === null) return null;
+    if (
+      !validateRowShape(
+        "workspace_members",
+        rows as Record<string, unknown>[],
+        ["id", "workspace_id", "user_id"],
+      )
+    ) {
+      return null;
+    }
+    // Validate the related `user` row shape if any are present.
+    const sampleUser = (rows as WorkspaceMemberRow[]).find((r) => r.user)?.user;
+    if (
+      sampleUser &&
+      !validateRowShape(
+        "users",
+        [sampleUser as Record<string, unknown>],
+        ["id", "display_name", "is_deactivated"],
+      )
+    ) {
+      return null;
+    }
     const seen = new Set<string>();
     const users: User[] = [];
     for (const r of rows as WorkspaceMemberRow[]) {
@@ -152,6 +236,7 @@ export async function readMessagesViaZero(opts: {
 }): Promise<{ messages: Message[] } | null> {
   const handle = activeZeroOrNull();
   if (!handle) return null;
+  if (isTableDrifted("messages")) return null;
 
   const limit = opts.limit ?? 50;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -167,6 +252,17 @@ export async function readMessagesViaZero(opts: {
         .run(),
     );
     if (rows === null) return null;
+    if (
+      !validateRowShape("messages", rows as Record<string, unknown>[], [
+        "id",
+        "channel_id",
+        "user_id",
+        "content",
+        "created_at",
+      ])
+    ) {
+      return null;
+    }
     // REST returns oldest → newest; we asked Zero for newest → reverse.
     const messages: Message[] = (rows as MessageRow[])
       .slice()
@@ -177,7 +273,7 @@ export async function readMessagesViaZero(opts: {
           id: r.author?.id ?? r.user_id,
           name: r.author?.display_name ?? "unknown",
         },
-        content: r.body,
+        content: r.content,
         timestamp: r.created_at,
       }));
     return { messages };
@@ -202,6 +298,7 @@ export async function searchMessagesViaZero(opts: {
 }): Promise<{ messages: Message[] } | null> {
   const handle = activeZeroOrNull();
   if (!handle) return null;
+  if (isTableDrifted("messages")) return null;
 
   const limit = opts.limit ?? 25;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -211,7 +308,7 @@ export async function searchMessagesViaZero(opts: {
     // doesn't support ILIKE on this column type, fall back to null
     // and let the caller hit REST.
     let q = z.query.messages
-      .where("body", "ILIKE", `%${opts.query}%`)
+      .where("content", "ILIKE", `%${opts.query}%`)
       .where("deleted_at", "IS", null)
       .related("author")
       .related("channel")
@@ -226,13 +323,24 @@ export async function searchMessagesViaZero(opts: {
     }
     const rows = await withTimeout(q.run());
     if (rows === null) return null;
+    if (
+      !validateRowShape("messages", rows as Record<string, unknown>[], [
+        "id",
+        "channel_id",
+        "user_id",
+        "content",
+        "created_at",
+      ])
+    ) {
+      return null;
+    }
     const messages: Message[] = (rows as MessageRow[]).map((r) => ({
       id: r.id,
       sender: {
         id: r.author?.id ?? r.user_id,
         name: r.author?.display_name ?? "unknown",
       },
-      content: r.body,
+      content: r.content,
       timestamp: r.created_at,
       channel: r.channel?.name,
     }));
@@ -256,7 +364,7 @@ interface MessageRow {
   id: string;
   channel_id: string;
   user_id: string;
-  body: string;
+  content: string;
   created_at: number;
   author?: {
     id: string;
