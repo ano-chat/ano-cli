@@ -24,6 +24,13 @@ import http from "node:http";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
+// v2.23.0 carve-out: /list_channels is Zero-backed by default and
+// skips the response cache. This bench tests the cache mechanism
+// itself against that path, so we opt out of Zero to restore
+// pre-v2.23.0 cache behavior. Must be set BEFORE importing retry.ts
+// since the gate is read at request-time.
+process.env.ANO_DISABLE_ZERO = "1";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // retry.ts is bundled into one of the chunks. Use a dynamic import
