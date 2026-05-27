@@ -5,3 +5,17 @@ dist/
 .env
 .env.local
 dist-native/
+
+# Zero SQLite kvStore leaks (test artifacts — investigate if seen in dev)
+/alpha
+/beta
+/droppable
+/shared
+/test_store
+/x
+/x-shm
+/x-wal
+/rep_*
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

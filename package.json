@@ -31,10 +31,13 @@
   },
   "dependencies": {
     "@ano-chat/skills": ">=0.3.1",
+    "@rocicorp/zero": "^1.5.0",
+    "better-sqlite3": "^11.10.0",
     "commander": "^13.1.0",
     "undici": "^7.26.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.15.17",
     "prettier": "^3.5.3",
     "tsup": "^8.4.0",
