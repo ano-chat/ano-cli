@@ -149,6 +149,18 @@ export function registerDaemon(parent: Command): void {
                   ? `${Math.round(sizeBytes / 1024)} KB`
                   : `${(sizeBytes / 1024 / 1024).toFixed(1)} MB`;
           lines.push(`zero:    ${r.zero.status} (replica: ${sizeStr})`);
+          // Surface schema-drifted tables when present. These reads
+          // are falling back to REST until daemon restart; user can
+          // either ignore (one-time slowdown for one table) or
+          // update the CLI if a newer version corrects the vendored
+          // schema.
+          if (r.zero.drifted && r.zero.drifted.length > 0) {
+            for (const d of r.zero.drifted) {
+              lines.push(
+                `         drift: ${d.table} — ${d.reason} (REST fallback active for this table)`,
+              );
+            }
+          }
         } else {
           // Zero is off. Either the user opted out (ANO_DISABLE_ZERO)
           // or bootstrap silently failed (mint endpoint unreachable,

@@ -26,9 +26,22 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - **Opt-out gate: `ANO_DISABLE_ZERO=1`.** Set this env var + restart
   the daemon to fully disable the Zero path. Useful for pinning
   behavior to the REST + cache stack during the v2.23.0 soak.
-- `ano daemon status` reports the Zero connection state and replica
-  size when active, or distinguishes opt-out vs bootstrap-failure
-  when off.
+- **Websocket-drop guard.** If Zero's WebSocket to `sync-*.ano.dev`
+  drops (network blip, server restart, suspend/resume), reads
+  transparently fall back to REST until reconnect — no risk of
+  serving stale data from a desynced replica. Zero's own retry
+  logic handles the reconnect; the daemon mirrors the connection
+  state to gate read traffic. Zero-touch for users.
+- **Schema-drift detection.** If the CLI's vendored schema disagrees
+  with the server's row shape on a table (e.g. a column was renamed
+  server-side), reads on that table register the drift, log one
+  stderr line, and fall back to REST for the rest of the daemon's
+  lifetime. Other tables continue to use Zero. Catches the silent-
+  failure class where reads would otherwise return rows with
+  `undefined` fields. Zero-touch for users.
+- `ano daemon status` reports the Zero connection state, replica
+  size, and any drifted tables when active; distinguishes opt-out
+  vs bootstrap-failure when off.
 
 ### Changed
 
@@ -38,6 +51,14 @@ project adheres to [Semantic Versioning](https://semver.org/).
   value masking the outage. `/list_workspaces`, `/list_tables`,
   `/get_table` continue to be cached (not yet Zero-backed). Set
   `ANO_DISABLE_ZERO=1` to restore pre-v2.23.0 cache behavior.
+
+### Fixed
+
+- **`messages.content` schema drift.** The vendored CLI schema declared
+  `messages.body` while the monorepo column is `messages.content` —
+  reads via Zero would have returned messages with `content: undefined`.
+  Caught in development; fixed at the schema level AND covered by the
+  runtime drift detector for future drift of the same shape.
 
 ### Notes
 

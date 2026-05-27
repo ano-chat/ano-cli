@@ -29,6 +29,7 @@ import {
   defaultReplicaPath,
 } from "./kv-sqlite.js";
 import { createZeroAuthProvider, type ZeroAuthProvider } from "./auth.js";
+import { setLastConnectionStatus } from "./active-client.js";
 
 export interface ZeroClientOptions {
   /**
@@ -129,10 +130,20 @@ export async function createZeroClient(
   let lastStatus: string = "init";
   // ConnectionState is a discriminated union by `name`:
   //   'disconnected' | 'connecting' | 'connected' | 'needs-auth' | 'error' | 'closed'
+  //
+  // Every transition is also mirrored to the module-scoped
+  // `setLastConnectionStatus()` registry in active-client.ts.
+  // `activeZeroOrNull()` consults that registry to refuse the Zero
+  // path while the WebSocket is dropped — so read commands transparently
+  // fall back to REST during a disconnect (websocket-drop fix).
   zero.connection.state.subscribe((state) => {
     lastStatus = state.name;
+    setLastConnectionStatus(state.name);
     opts.log?.("zero-client: connection state", { name: state.name });
     if (state.name === "needs-auth") {
+      // JWT expired or server explicitly demanded fresh auth. Mint a
+      // new one and re-supply via connection.connect — this is the
+      // canonical Zero pattern.
       void (async () => {
         const fresh = await auth.forceRefresh();
         if (fresh) {
@@ -145,6 +156,13 @@ export async function createZeroClient(
           }
         }
       })();
+    } else if (state.name === "error" || state.name === "disconnected") {
+      // Zero's internal retry/reconnect handles the reconnect itself
+      // (exponential backoff + jitter). We surface the state so reads
+      // fall back to REST in the meantime; once the state flips back
+      // to "connected", reads return to the Zero path automatically.
+      // No action needed here beyond the status mirror above — kept
+      // as an explicit branch so future telemetry hooks have a place.
     }
   });
 

@@ -126,6 +126,13 @@ export interface PingResponse {
     replicaPath: string;
     /** Size of the replica file in bytes, or null if not yet bootstrapped. */
     replicaSizeBytes: number | null;
+    /**
+     * Tables flagged as schema-drifted (vendored CLI schema disagrees
+     * with what the server's data actually returns). Reads on these
+     * tables skip Zero and fall back to REST. Optional so older daemons
+     * (or fresh daemons with no drift detected) just omit it.
+     */
+    drifted?: Array<{ table: string; reason: string }>;
   };
 }
 
