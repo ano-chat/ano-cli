@@ -40,6 +40,7 @@ import {
 } from "./kv-sqlite.js";
 import { createZeroAuthProvider, type ZeroAuthProvider } from "./auth.js";
 import { setLastConnectionStatus } from "./active-client.js";
+import { cliMutators } from "./mutators.js";
 
 export interface ZeroClientOptions {
   /**
@@ -69,9 +70,19 @@ export interface ZeroClientOptions {
   kvStorePathPrefix?: string;
 }
 
+// Zero's TypeScript pinning of the `mutators` constructor parameter
+// requires a specific `CustomMutatorDefs` shape that doesn't quite
+// match what `defineMutators` returns (CALLABLE registry shape). The
+// monorepo's desktop client side-steps this with `any` (see
+// `apps/desktop/src/lib/zero.ts:10`); we follow the same pattern.
+// Runtime behavior is correct; only the second type parameter is
+// erased.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ZeroWithCliMutators = Zero<CliSchema, any>;
+
 export interface ZeroClientHandle {
   /** The Zero instance for queries + mutations. */
-  zero: Zero<CliSchema>;
+  zero: ZeroWithCliMutators;
   /** Auth provider (exposed for force-refresh on 401s). */
   auth: ZeroAuthProvider;
   /** Best-effort stats for `ano daemon status`. */
@@ -129,7 +140,7 @@ export async function createZeroClient(
   const replicaName = `user_${userId}`;
   const replicaPath = defaultReplicaPath(replicaName);
 
-  const zero = new Zero<CliSchema>({
+  const zero: ZeroWithCliMutators = new Zero({
     userID: userId,
     // ctx.sub is what every named query in
     // `packages/shared/src/queries/` destructures to filter rows
@@ -142,6 +153,7 @@ export async function createZeroClient(
     schema: cliSchema,
     auth: initialToken,
     kvStore,
+    mutators: cliMutators,
   });
 
   // Subscribe to connection state. When Zero transitions to
