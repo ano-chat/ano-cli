@@ -4,6 +4,48 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.24.2] — 2026-05-28
+
+### Added
+
+- **`ano messages search "..."` now serves from the Zero replica.**
+  Uses the monorepo's `messages.recentByUserMemberships` named
+  query (last 10K messages across the user's channel
+  memberships) to fill the local replica, then runs a
+  case-insensitive substring LIKE filter client-side. Same pattern
+  the desktop CommandPalette uses.
+
+  Timing against `api-staging.ano.dev`:
+  - First search (cold — server materializes 10K): ~3.4 s wall time
+  - Subsequent searches (any query, warm replica): ~90 ms
+  - Local SQLite LIKE itself: microseconds; the rest is Node
+    startup + daemon RPC
+
+### Read coverage after this PR
+
+- ✅ `ano channels list` → Zero
+- ✅ `ano users list --workspace W` → Zero
+- ✅ `ano messages read --channel C` → Zero
+- ✅ `ano messages search "..."` → Zero (new — client-side LIKE
+  over the named-query replica)
+
+All four hot read commands now serve from the local replica
+after first warm-up.
+
+### Notes
+
+- The cold-cost on first search (~3.4 s) is paid once per daemon
+  startup, then amortized across every subsequent search against
+  the same replica.
+- `recentByUserMemberships` doesn't `.related("sender")`, so sender
+  names display as "unknown" in search output. The sender's
+  `user_id` is still on each row; if needed, a follow-up could
+  cross-reference against the users table for display names.
+  Cosmetic — content + channel context is intact.
+- The 10K cap matches the desktop's. For workspaces with > 10K
+  recent messages, the oldest ones won't be searchable until
+  server-side FTS lands upstream.
+
 ## [2.24.1] — 2026-05-28
 
 ### Added
