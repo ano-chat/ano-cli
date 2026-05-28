@@ -4,6 +4,87 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.25.0] — 2026-05-28
+
+### Added — Phase 3: writes via Zero mutators
+
+Three CLI write paths now flow through optimistic Zero mutators
+instead of REST. The replica gets the change immediately; the
+server runs the authoritative mutator (auth + cascades + side
+effects) in parallel; the CLI surfaces the server's ack
+synchronously so an auth rejection still throws.
+
+- **`ano messages send "..." --channel <id>`** (basic text path only —
+  no attachments, no thread, no `--mention`, no `--channel-name`)
+  → `messages.insert` Zero mutator. Smoked at ~310 ms wall time
+  against staging.
+- **`ano channels archive <channel-id>`** → `channels.update` Zero
+  mutator. ~145 ms.
+- **`ano channels member-remove <channel-id> <user-id>`** →
+  two-step (local replica lookup for the `channel_members` row id,
+  then `channel_members.delete` Zero mutator). ~346 ms after the
+  channel's members have replicated locally; the first attempt
+  immediately after a fresh `channels create` falls back to REST
+  gracefully while the replica catches up.
+
+Any path that needs server-side resolution (channel-name lookup,
+attachment upload, thread parent denormalization, mention
+@handle→user_id) still goes through REST — the Zero path is
+explicitly the basic case.
+
+### Fixed
+
+- **5 real bugs from the 10-pass Zero subsystem review (PR #68):**
+  - `searchMessagesViaZero` no longer matches every message when
+    the query is empty/whitespace
+  - JWT refresh math no longer hardcodes a 12 h TTL assumption;
+    tracks `mintedAt` per token + 60 s safety floor for short TTLs
+  - `listUsersViaZero` registers schema drift + falls back to
+    REST when the local replica doesn't have user joins populated
+    (server's `workspace_members.byWorkspace` doesn't
+    `.related("user")`)
+  - `daemon status` now reports the actual replica size — Zero
+    uses internal naming (`rep_zero-<userId>-<group>-<schema>.sqlite`)
+    that our path-guess always missed. Scans the cache directory
+    for the largest matching file now.
+  - `localstorage-polyfill` installed flag is set only after
+    `defineProperty` succeeds; a non-configurable global no
+    longer silently marks the polyfill installed
+
+- **`messages search` sender names resolve correctly** (PR #68).
+  Vendored `users.byWorkspacesOfUser` into the CLI's named-query
+  registry and subscribed to it in parallel with the message pull.
+  No more "unknown" sender names in search output.
+
+- **Phase 3 writes hit the mutators registry, not the proxy
+  directly** (PR #58 + PR #69). Initial `writes.ts` did
+  `zero.mutate.X.method(...)` which `.claude/rules/mutators.md`
+  explicitly forbids (bypasses the registry; the proxy is callable,
+  not a nested object). All three write helpers now go through
+  `zero.mutate(cliMutators.X.method(args))`.
+
+- **`messages.insert` mutator forwards `is_edited` to the local
+  replica** (PR #69). CLI schema declares it required; Zero's local
+  CRUD was permissive enough to accept the omission during the
+  original smoke, but a future strictness change would have
+  surfaced it as a hard error.
+
+- **`zero-writes.test.ts` mocks model `zero.mutate` as a callable**
+  (PR #69). Previous nested-object mocks predated the registry fix
+  and would have caught the original bug if CI hadn't auto-merged
+  while still in flight.
+
+### Notes
+
+- The Zero write path is opt-out via `ANO_DISABLE_ZERO=1`; if Zero
+  is unavailable, every command falls through to REST exactly as
+  before.
+- Optimistic writes mean the CLI returns success the moment the
+  local replica accepts the mutation, AND we await the server's
+  authoritative reply (bounded by a 5 s timeout) so auth rejections
+  still throw. No silent "looks ok locally but fails on the server"
+  outcomes.
+
 ## [2.24.2] — 2026-05-28
 
 ### Added
