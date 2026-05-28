@@ -143,7 +143,22 @@ export async function createZeroClient(
   const kvStore = await createSqliteKvStoreProvider({
     pathPrefix: opts.kvStorePathPrefix,
   });
-  const replicaName = `user_${userId}`;
+  // Partition replica by (userId, cacheURL) so switching profiles
+  // doesn't reuse the previous environment's local data. WorkOS
+  // issues the same userId across staging + prod, so without this a
+  // user who runs `ano auth login --endpoint <staging>` then later
+  // switches to a `local` profile would see the staging replica
+  // through the local daemon until manually wiping
+  // `~/.cache/ano/zero/`. The bug class is silent — the user gets
+  // wrong data without an error.
+  //
+  // `endpointSlug` is a sanitized derivation of `cacheURL`, e.g.
+  //   https://sync-staging.ano.dev → sync-staging.ano.dev
+  //   http://127.0.0.1:4848        → 127.0.0.1_4848
+  // No hashing — keeps the filename readable in `daemon status` and
+  // makes orphaned files debuggable by inspection.
+  const endpointSlug = sanitizeEndpoint(opts.cacheURL);
+  const replicaName = `user_${userId}_${endpointSlug}`;
   const replicaPath = defaultReplicaPath(replicaName);
 
   const zero = new Zero({
@@ -309,6 +324,25 @@ export function isZeroEnabled(): boolean {
  *
  * Returns `null` on any parse error.
  */
+/**
+ * Sanitize a `cacheURL` into a filesystem-safe slug. Strips the
+ * protocol + trailing slashes, replaces non-alphanumeric chars with
+ * `_`. Used as part of the Zero replica filename so the on-disk file
+ * is partitioned by endpoint — switching profiles doesn't reuse the
+ * previous environment's data.
+ *
+ * Examples:
+ *   https://sync-staging.ano.dev    → sync-staging.ano.dev
+ *   https://sync-us.ano.dev         → sync-us.ano.dev
+ *   http://127.0.0.1:4848           → 127.0.0.1_4848
+ */
+export function sanitizeEndpoint(url: string): string {
+  return url
+    .replace(/^https?:\/\//, "")
+    .replace(/\/+$/, "")
+    .replace(/[^a-zA-Z0-9.-]/g, "_");
+}
+
 function extractSubFromJwt(token: string): string | null {
   try {
     const parts = token.split(".");
