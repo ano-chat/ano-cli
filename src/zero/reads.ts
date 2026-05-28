@@ -143,6 +143,16 @@ export async function listChannelsViaZero(opts: {
     }
     const rows = await withTimeout(q.run());
     if (rows === null) return null;
+    // Empty result — fall through to REST. Zero's protocol means an
+    // empty array here can be either: (a) workspace genuinely has 0
+    // channels — rare, or (b) the server hasn't filled the local
+    // replica for this query yet — common during cold start AND
+    // currently the persistent failure mode on staging (server's
+    // customQueryTransformer not streaming anonymous-legacy-query
+    // table data). For both cases REST is correct; for (a) it's
+    // ~100ms wasted on a rare command, for (b) the user actually
+    // sees their data. The asymmetric cost makes the heuristic safe.
+    if (Array.isArray(rows) && rows.length === 0) return null;
     if (
       !validateRowShape("channels", rows as Record<string, unknown>[], [
         "id",
@@ -192,6 +202,7 @@ export async function listUsersViaZero(opts: {
         .run(),
     );
     if (rows === null) return null;
+    if (Array.isArray(rows) && rows.length === 0) return null;
     if (
       !validateRowShape(
         "workspace_members",
@@ -258,6 +269,7 @@ export async function readMessagesViaZero(opts: {
         .run(),
     );
     if (rows === null) return null;
+    if (Array.isArray(rows) && rows.length === 0) return null;
     if (
       !validateRowShape("messages", rows as Record<string, unknown>[], [
         "id",
@@ -329,6 +341,7 @@ export async function searchMessagesViaZero(opts: {
     }
     const rows = await withTimeout(q.run());
     if (rows === null) return null;
+    if (Array.isArray(rows) && rows.length === 0) return null;
     if (
       !validateRowShape("messages", rows as Record<string, unknown>[], [
         "id",
