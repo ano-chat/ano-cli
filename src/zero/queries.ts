@@ -145,6 +145,29 @@ const messagesQueries = {
   ),
 };
 
+/**
+ * User queries.
+ *
+ * Names + shapes must match `usersQueries` in
+ * `packages/shared/src/queries/users.ts`. Only the queries the CLI
+ * actually runs are vendored here.
+ */
+const usersQueries = {
+  // Returns every user visible to the caller via the server's
+  // `userAccessFilter` (i.e. users in workspaces I'm a member of).
+  // The CLI subscribes to this in `searchMessagesViaZero` so the
+  // local replica has user rows to join sender names against —
+  // server's `messages.recentByUserMemberships` does NOT
+  // `.related("sender")`, so without an independent users
+  // subscription the search output reads "unknown" for every row.
+  // Body is unfiltered: the server's named query
+  // (`packages/shared/src/queries/users.ts:86`) applies
+  // `userAccessFilter(sub)` and only the matching rows reach the
+  // local replica. Client-side, "every user in the local replica"
+  // already means "every user I can see" — no extra filter needed.
+  byWorkspacesOfUser: defineQuery(() => zql.users),
+};
+
 const workspaceMembersQueries = {
   // Name `byWorkspace` matches `queries.workspace_members.byWorkspace`
   // in the monorepo (`packages/shared/src/queries/members.ts:25`).
@@ -162,6 +185,7 @@ const workspaceMembersQueries = {
 export const cliQueries = defineQueries({
   channels: channelsQueries,
   messages: messagesQueries,
+  users: usersQueries,
   workspace_members: workspaceMembersQueries,
 });
 

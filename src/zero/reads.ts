@@ -365,12 +365,33 @@ export async function searchMessagesViaZero(opts: {
     // ~10K-row materialize (slow once); subsequent searches reuse
     // the warm replica (microseconds local LIKE scan). No server
     // FTS query exists today — this is the pragmatic substitute.
-    const queryRef = cliQueries.messages.recentByUserMemberships(10000);
-    const allRows = (await withTimeout(
-      z.run(queryRef, { type: "complete" }),
-    )) as Record<string, unknown>[] | null;
+    // Subscribe to users IN PARALLEL with the message pull. Server's
+    // `recentByUserMemberships` doesn't `.related("sender")`, so we
+    // need users in the local replica to resolve display names —
+    // otherwise every match prints "unknown". `users.byWorkspacesOfUser`
+    // is the matching server-side query; once it lands, subsequent
+    // searches stay warm.
+    const messagesQueryRef = cliQueries.messages.recentByUserMemberships(10000);
+    const usersQueryRef = cliQueries.users.byWorkspacesOfUser();
+    const [allRows, userRows] = (await Promise.all([
+      withTimeout(z.run(messagesQueryRef, { type: "complete" })),
+      withTimeout(z.run(usersQueryRef, { type: "complete" })),
+    ])) as [Record<string, unknown>[] | null, Record<string, unknown>[] | null];
     if (allRows === null) return null;
     if (Array.isArray(allRows) && allRows.length === 0) return null;
+
+    // Build a userId → display_name lookup. userRows may be null (the
+    // users subscription hit the timeout); fall back to "unknown" then.
+    const userById = new Map<string, string>();
+    if (Array.isArray(userRows)) {
+      for (const u of userRows) {
+        const id = u.id;
+        const name = u.display_name;
+        if (typeof id === "string" && typeof name === "string") {
+          userById.set(id, name);
+        }
+      }
+    }
 
     // Client-side filter: content contains query (case-insensitive).
     // Workspace scope: the named query already filters to the user's
@@ -403,7 +424,7 @@ export async function searchMessagesViaZero(opts: {
       id: r.id,
       sender: {
         id: r.sender?.id ?? r.user_id,
-        name: r.sender?.display_name ?? "unknown",
+        name: r.sender?.display_name ?? userById.get(r.user_id) ?? "unknown",
       },
       content: r.content,
       timestamp: r.created_at,
