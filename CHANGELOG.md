@@ -4,6 +4,21 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.25.2] — 2026-05-28
+
+### Fixed
+
+- **Release smoke gate now sets `ANO_ENDPOINT` for staging** (PR #75).
+  The v2.25.1 release was correctly blocked by the smoke gate because
+  CI had only `ANO_API_KEY` set; without a credentials.json the CLI
+  defaulted endpoint to `https://api.ano.dev` (the apex), and the
+  `--expect-endpoint https://api-staging.ano.dev` assertion tripped
+  the mismatch. Meta-validation: gate worked as designed and caught a
+  real config bug. v2.25.1 stays as a git tag (no npm publish — it
+  was blocked); v2.25.2 ships the same code through a working gate.
+
+### Carried forward from v2.25.1 (never published)
+
 ## [2.25.1] — 2026-05-28
 
 ### Fixed
