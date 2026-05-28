@@ -92,8 +92,11 @@ const workspaceMembersQueries = {
   // Name `byWorkspace` matches `queries.workspace_members.byWorkspace`
   // in the monorepo (`packages/shared/src/queries/members.ts:25`).
   byWorkspace: defineQuery(z.string(), ({ args: workspaceId }) =>
+    // Cast: Zod's inferred args type widens to `ReadonlyJSONValue`
+    // but the .where()'s overload expects `string` for this column.
+    // Zod has already validated it; the cast is shape-safe.
     zql.workspace_members
-      .where("workspace_id", workspaceId)
+      .where("workspace_id", workspaceId as string)
       .where("removed_at", "IS", null)
       .related("user"),
   ),
