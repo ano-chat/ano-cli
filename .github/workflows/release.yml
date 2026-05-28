@@ -67,9 +67,19 @@ jobs:
 
           set -e
           echo "Running staging smoke (key from Doppler)..."
-          ANO_API_KEY="$SMOKE_KEY" node dist/index.js dev smoke \
-            --expect-endpoint https://api-staging.ano.dev \
-            --agent | tee /tmp/smoke.json
+          # ANO_ENDPOINT is required here. The CLI's `resolveAuth`
+          # uses `--endpoint` (default `https://api.ano.dev`) when
+          # only `ANO_API_KEY` is set — no credentials.json in CI to
+          # carry a profile-bound endpoint. Without ANO_ENDPOINT, the
+          # smoke runs against the apex and `--expect-endpoint`
+          # rightly fails. The first v2.25.1 release attempt hit
+          # this; preserved here as the canonical "smoke gate
+          # caught a real config bug before publish" example.
+          ANO_API_KEY="$SMOKE_KEY" \
+          ANO_ENDPOINT="https://api-staging.ano.dev" \
+            node dist/index.js dev smoke \
+              --expect-endpoint https://api-staging.ano.dev \
+              --agent | tee /tmp/smoke.json
           # The smoke command exits 1 on any step failure; the pipe +
           # set -e propagates that here. Belt-and-suspenders: also
           # assert ok=true in the JSON envelope so a future smoke
