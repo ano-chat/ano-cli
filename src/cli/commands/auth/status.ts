@@ -19,6 +19,14 @@ export function registerAuthStatus(parent: Command): void {
               source: auth.source,
               endpoint: auth.endpoint,
               key_prefix: auth.key.slice(0, 12) + "...",
+              // `workspace_name` comes from `credentials.json` and is only
+              // populated for profile-backed credentials whose profile has
+              // been pinned via `ano workspaces use`. Omit the field when
+              // unset so the JSON shape stays minimal for callers that
+              // don't care.
+              ...(auth.workspace_name
+                ? { workspace_name: auth.workspace_name }
+                : {}),
             },
             title: "Auth Status",
             breadcrumbs: [
