@@ -122,6 +122,27 @@ const messagesQueries = {
         .limit(args.limit as number)
         .related("sender"),
   ),
+  // Cross-channel recent-message pull, capped at 10K. Mirrors the
+  // monorepo's `messages.recentByUserMemberships`. The CLI uses it
+  // as the source for `ano messages search` — once filled, search
+  // is a local SQLite LIKE scan, microseconds. The server doesn't
+  // expose a content-search query directly (no FTS through Zero
+  // today); this client-side filter is the pragmatic substitute.
+  // Same pattern the desktop's CommandPalette uses.
+  recentByUserMemberships: defineQuery(
+    z.number().default(10000),
+    ({ args, ctx }) =>
+      zql.messages
+        .whereExists("channel", (cq) =>
+          cq.whereExists("members", (mq) =>
+            mq
+              .where("user_id", (ctx as { sub: string }).sub)
+              .where("removed_at", "IS", null),
+          ),
+        )
+        .orderBy("created_at", "desc")
+        .limit(args as number),
+  ),
 };
 
 const workspaceMembersQueries = {

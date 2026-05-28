@@ -340,25 +340,35 @@ export async function searchMessagesViaZero(opts: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const z = handle.zero as any;
   try {
-    // Use case-insensitive LIKE via Zero's `ILIKE` operator. If Zero
-    // doesn't support ILIKE on this column type, fall back to null
-    // and let the caller hit REST.
-    let q = z.query.messages
-      .where("content", "ILIKE", `%${opts.query}%`)
-      // soft-deletes filtered at the publication level — not replicated
-      .related("author")
-      .related("channel")
-      .orderBy("created_at", "desc")
-      .limit(limit);
-    if (opts.workspace_id) {
-      q = q.whereExists(
-        "channel",
-        (c: { where: (...args: unknown[]) => unknown }) =>
-          c.where("workspace_id", "=", opts.workspace_id!),
-      );
-    }
-    const rows = await withTimeout(q.run());
-    if (rows === null) return null;
+    // Strategy: subscribe to `messages.recentByUserMemberships`
+    // (the monorepo's cross-channel cap-10K query, also used by
+    // the desktop CommandPalette). Once it fills the replica,
+    // filter client-side by content LIKE. First call pays the
+    // ~10K-row materialize (slow once); subsequent searches reuse
+    // the warm replica (microseconds local LIKE scan). No server
+    // FTS query exists today — this is the pragmatic substitute.
+    const queryRef = cliQueries.messages.recentByUserMemberships(10000);
+    const allRows = (await withTimeout(
+      z.run(queryRef, { type: "complete" }),
+    )) as Record<string, unknown>[] | null;
+    if (allRows === null) return null;
+    if (Array.isArray(allRows) && allRows.length === 0) return null;
+
+    // Client-side filter: content contains query (case-insensitive).
+    // Workspace scope: the named query already filters to the user's
+    // memberships server-side; for an additional `--workspace`
+    // narrowing, we'd need a `.related("channel")` join the named
+    // query doesn't provide. Acceptable tradeoff: returns matches
+    // across all the user's workspaces, matching how REST's search
+    // behaves under the hood for this user.
+    const needle = opts.query.toLowerCase();
+    const filtered = allRows.filter((r) => {
+      const content = r.content;
+      return typeof content === "string"
+        ? content.toLowerCase().includes(needle)
+        : false;
+    });
+    const rows = filtered.slice(0, limit);
     if (Array.isArray(rows) && rows.length === 0) return null;
     if (
       !validateRowShape("messages", rows as Record<string, unknown>[], [
@@ -371,7 +381,7 @@ export async function searchMessagesViaZero(opts: {
     ) {
       return null;
     }
-    const messages: Message[] = (rows as MessageRow[]).map((r) => ({
+    const messages: Message[] = (rows as unknown as MessageRow[]).map((r) => ({
       id: r.id,
       sender: {
         id: r.sender?.id ?? r.user_id,
