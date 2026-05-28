@@ -4,6 +4,45 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.24.1] — 2026-05-28
+
+### Added
+
+- **`ano messages read --channel <id>` now serves from the Zero
+  replica.** Uses the monorepo's `messages.byChannelComposite`
+  named query — same access guard the desktop uses
+  (`channelMemberGuard(sub)`). Cold call ~400 ms (server
+  materializes the query, fills replica, returns); warm calls
+  serving the same channel ~60 ms wall time (Node startup +
+  daemon RPC + local SQLite read).
+- Per-channel subscription model: each channel is its own
+  subscription. The first read of a new channel pays the cold
+  cost. After a few minutes of normal use, the replica naturally
+  warms across the channels the user actually touches.
+
+### Changed
+
+- **Schema relation `messages.author` renamed to
+  `messages.sender`** to match the monorepo's relationship name
+  (`packages/shared/src/schema/index.ts`). Without this rename,
+  rows materialized from the server's `messages.byChannelComposite`
+  (which does `.related("sender")`) wouldn't map correctly into
+  the local replica.
+
+### Notes
+
+- `ano messages search "..."` still uses REST. The monorepo has
+  no equivalent named query for full-text search — server-side
+  FTS isn't exposed via Zero today. Adding it requires a new
+  named query upstream (`messages.byContentLike` or similar);
+  tracked as a future enhancement. The REST path takes ~150 ms,
+  which is acceptable for an interactive search command.
+- Across the four hot read commands:
+  - ✅ `ano channels list` → Zero
+  - ✅ `ano users list --workspace W` → Zero
+  - ✅ `ano messages read --channel C` → Zero (new in 2.24.1)
+  - ⏳ `ano messages search` → REST (no server-side named query)
+
 ## [2.24.0] — 2026-05-28
 
 ### Added
