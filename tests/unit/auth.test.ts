@@ -436,3 +436,163 @@ describe("resolveAuth — auto-local in monorepo", () => {
     });
   });
 });
+
+import { resolveBootstrapProfile } from "../../src/core/auth.js";
+
+describe("resolveBootstrapProfile — daemon-side resolution", () => {
+  let tmpRoot: string;
+  let originalCwd: string;
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    delete process.env.ANO_PROFILE;
+    delete process.env.ANO_NO_AUTO_LOCAL;
+    tmpRoot = mkdtempSync(join(tmpdir(), "bootstrap-profile-test-"));
+    originalCwd = process.cwd();
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    rmSync(tmpRoot, { recursive: true, force: true });
+    delete process.env.ANO_PROFILE;
+    delete process.env.ANO_NO_AUTO_LOCAL;
+  });
+
+  function withDevLocalRunning(): void {
+    const pidDir = join(tmpRoot, ".ano", "dev", "postgres");
+    mkdirSync(pidDir, { recursive: true });
+    writeFileSync(join(pidDir, "postmaster.pid"), `${process.pid}\n`);
+    process.chdir(tmpRoot);
+  }
+
+  it("picks `local` when cwd is under dev:local AND local profile exists", () => {
+    withDevLocalRunning();
+    mockLoadProjectConfig.mockReturnValue(null);
+    mockLoadGlobalCredentials.mockReturnValue({
+      profiles: {
+        default: {
+          key: "staging-key",
+          endpoint: "https://api-staging.ano.dev",
+          created_at: "",
+        },
+        local: {
+          key: "local-key",
+          endpoint: "http://127.0.0.1:3001",
+          created_at: "",
+        },
+      },
+    });
+
+    const result = resolveBootstrapProfile(process.cwd());
+    expect(result).toEqual({
+      key: "local-key",
+      endpoint: "http://127.0.0.1:3001",
+    });
+  });
+
+  it("falls back to default when cwd is outside any dev:local stack", () => {
+    process.chdir(tmpdir());
+    mockLoadProjectConfig.mockReturnValue(null);
+    mockLoadGlobalCredentials.mockReturnValue({
+      profiles: {
+        default: {
+          key: "staging-key",
+          endpoint: "https://api-staging.ano.dev",
+          created_at: "",
+        },
+        local: {
+          key: "local-key",
+          endpoint: "http://127.0.0.1:3001",
+          created_at: "",
+        },
+      },
+    });
+
+    const result = resolveBootstrapProfile(process.cwd());
+    expect(result).toEqual({
+      key: "staging-key",
+      endpoint: "https://api-staging.ano.dev",
+    });
+  });
+
+  it("honors ANO_PROFILE override (ignores auto-local)", () => {
+    withDevLocalRunning();
+    process.env.ANO_PROFILE = "default";
+    mockLoadProjectConfig.mockReturnValue(null);
+    mockLoadGlobalCredentials.mockReturnValue({
+      profiles: {
+        default: {
+          key: "staging-key",
+          endpoint: "https://api-staging.ano.dev",
+          created_at: "",
+        },
+        local: {
+          key: "local-key",
+          endpoint: "http://127.0.0.1:3001",
+          created_at: "",
+        },
+      },
+    });
+
+    const result = resolveBootstrapProfile(process.cwd());
+    expect(result.key).toBe("staging-key");
+  });
+
+  it("ANO_PROFILE pointing at a missing profile returns empty (no silent fallback)", () => {
+    mockLoadProjectConfig.mockReturnValue(null);
+    process.env.ANO_PROFILE = "no-such-profile";
+    mockLoadGlobalCredentials.mockReturnValue({
+      profiles: {
+        default: { key: "staging-key", created_at: "" },
+      },
+    });
+
+    const result = resolveBootstrapProfile(process.cwd());
+    expect(result).toEqual({});
+  });
+
+  it("ANO_NO_AUTO_LOCAL=1 disables auto-pick even with dev:local running", () => {
+    withDevLocalRunning();
+    process.env.ANO_NO_AUTO_LOCAL = "1";
+    mockLoadProjectConfig.mockReturnValue(null);
+    mockLoadGlobalCredentials.mockReturnValue({
+      profiles: {
+        default: {
+          key: "staging-key",
+          endpoint: "https://api-staging.ano.dev",
+          created_at: "",
+        },
+        local: {
+          key: "local-key",
+          endpoint: "http://127.0.0.1:3001",
+          created_at: "",
+        },
+      },
+    });
+
+    const result = resolveBootstrapProfile(process.cwd());
+    expect(result.key).toBe("staging-key");
+  });
+
+  it("project config wins over credentials", () => {
+    mockLoadProjectConfig.mockReturnValue({
+      key: "project-key",
+      endpoint: "https://project.example.com",
+    });
+    mockLoadGlobalCredentials.mockReturnValue({
+      profiles: {
+        default: {
+          key: "staging-key",
+          endpoint: "https://api-staging.ano.dev",
+          created_at: "",
+        },
+      },
+    });
+
+    const result = resolveBootstrapProfile(process.cwd());
+    expect(result).toEqual({
+      key: "project-key",
+      endpoint: "https://project.example.com",
+    });
+  });
+});
