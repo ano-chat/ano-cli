@@ -40,6 +40,7 @@ import {
 } from "./kv-sqlite.js";
 import { createZeroAuthProvider, type ZeroAuthProvider } from "./auth.js";
 import { setLastConnectionStatus } from "./active-client.js";
+import { cliMutators } from "./mutators.js";
 
 export interface ZeroClientOptions {
   /**
@@ -69,9 +70,25 @@ export interface ZeroClientOptions {
   kvStorePathPrefix?: string;
 }
 
+// Zero's TypeScript pinning of the `mutators` constructor parameter
+// requires a specific `CustomMutatorDefs` shape that doesn't quite
+// match what `defineMutators` returns (CALLABLE registry shape). The
+// monorepo's desktop client side-steps this with `any` (see
+// `apps/desktop/src/lib/zero.ts:10`); we follow the same pattern.
+// Runtime behavior is correct; only the second type parameter is
+// erased.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ZeroWithCliMutators = Zero<CliSchema, any>;
+
 export interface ZeroClientHandle {
   /** The Zero instance for queries + mutations. */
-  zero: Zero<CliSchema>;
+  zero: ZeroWithCliMutators;
+  /**
+   * The resolved userId driving Zero's `userID` + `context.sub`.
+   * Mutator helpers need this to populate `user_id` / `created_by`
+   * / `removed_by` fields on optimistic writes.
+   */
+  userId: string;
   /** Auth provider (exposed for force-refresh on 401s). */
   auth: ZeroAuthProvider;
   /** Best-effort stats for `ano daemon status`. */
@@ -129,20 +146,30 @@ export async function createZeroClient(
   const replicaName = `user_${userId}`;
   const replicaPath = defaultReplicaPath(replicaName);
 
-  const zero = new Zero<CliSchema>({
+  const zero = new Zero({
     userID: userId,
-    // ctx.sub is what every named query in
-    // `packages/shared/src/queries/` destructures to filter rows
-    // by the caller. Without it, `ctx.sub` is undefined at
-    // client-side query execution and Zero throws
-    // `Cannot read properties of undefined (reading 'sub')`.
-    // Matches the desktop's setup in apps/desktop/src/lib/zero.ts.
+    // `context.sub` is consumed by BOTH client-side reads and writes:
+    //   - Every named query in `packages/shared/src/queries/`
+    //     destructures `ctx.sub` to filter rows by the caller; without
+    //     it Zero throws "Cannot read properties of undefined".
+    //   - Mutators run optimistically client-side; their `ctx.sub`
+    //     resolves from this. The server then re-derives `ctx.sub`
+    //     from the JWT and must match for auth checks
+    //     (`removed_by = ctx.sub`, etc.) to agree.
+    // Mirrors the desktop's `apps/desktop/src/lib/zero.ts:10` setup.
     context: { sub: userId },
     server: opts.cacheURL,
     schema: cliSchema,
     auth: initialToken,
     kvStore,
-  });
+    mutators: cliMutators,
+    // Zero's TypeScript pinning of the constructor's return type
+    // includes the context's literal type ({sub: string}), which
+    // doesn't unify cleanly with our `ZeroWithCliMutators` alias
+    // (third type param defaults to `unknown`). Desktop uses the
+    // same `Zero<CliSchema, any>` shape (apps/desktop/src/lib/
+    // zero.ts:10); cast through `unknown` to bridge.
+  }) as unknown as ZeroWithCliMutators;
 
   // Subscribe to connection state. When Zero transitions to
   // `needs-auth` (server returned 401/403), mint a fresh JWT and
@@ -195,6 +222,7 @@ export async function createZeroClient(
   let disposed = false;
   return {
     zero,
+    userId,
     auth,
     stats() {
       // `replicaPath` above is the path we'd compute if we owned the
