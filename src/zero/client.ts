@@ -31,7 +31,8 @@ import { installLocalStoragePolyfill } from "./localstorage-polyfill.js";
 installLocalStoragePolyfill();
 
 import { Zero } from "@rocicorp/zero";
-import { statSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
+import { dirname } from "node:path";
 import { cliSchema, type CliSchema } from "./schema.js";
 import {
   createSqliteKvStoreProvider,
@@ -196,15 +197,41 @@ export async function createZeroClient(
     zero,
     auth,
     stats() {
+      // `replicaPath` above is the path we'd compute if we owned the
+      // filename. Zero actually names its replica files with an
+      // internal scheme (`rep_zero-<userId>-<group>-<schema>.sqlite`),
+      // so statSync on our computed path always fails — historically
+      // surfaced as `replica: —` in `daemon status` even when the
+      // replica was fully synced. Scan the parent directory for any
+      // file matching the user's prefix and report the largest. Best-
+      // effort; falls back to null if the directory doesn't exist yet.
       let replicaSizeBytes: number | null = null;
+      let resolvedPath: string = replicaPath;
       try {
-        replicaSizeBytes = statSync(replicaPath).size;
+        const dir = dirname(replicaPath);
+        const entries = readdirSync(dir);
+        const candidates = entries.filter(
+          (f) => f.includes(userId) && f.endsWith(".sqlite"),
+        );
+        let largest = 0;
+        for (const f of candidates) {
+          try {
+            const full = `${dir}/${f}`;
+            const size = statSync(full).size;
+            if (size > largest) {
+              largest = size;
+              resolvedPath = full;
+            }
+          } catch {
+            // unreadable entry — skip
+          }
+        }
+        if (largest > 0) replicaSizeBytes = largest;
       } catch {
-        // file may not exist yet — replica hasn't been bootstrapped
-        replicaSizeBytes = null;
+        // directory missing — replica hasn't been bootstrapped yet
       }
       return {
-        replicaPath,
+        replicaPath: resolvedPath,
         replicaSizeBytes,
         connectionStatus: lastStatus,
       };

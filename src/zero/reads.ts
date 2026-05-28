@@ -228,13 +228,27 @@ export async function listUsersViaZero(opts: {
     ) {
       return null;
     }
-    // Validate the related `user` row shape if any are present.
-    const sampleUser = (rows as WorkspaceMemberRow[]).find((r) => r.user)?.user;
+    // The server's `workspace_members.byWorkspace` does NOT
+    // `.related("user")` — joined user data only materializes
+    // locally if the users table is independently subscribed (e.g.
+    // because a `messages.byChannelComposite` subscription has
+    // `.related("sender")` populating users for the active channel).
+    // If we have member rows but no user joins, the replica doesn't
+    // have enough data — fall back to REST rather than silently
+    // returning an empty roster. Track once-per-daemon via the drift
+    // registry so subsequent calls short-circuit fast.
+    const rowsWithUser = (rows as WorkspaceMemberRow[]).filter((r) => r.user);
+    if (rowsWithUser.length === 0) {
+      registerSchemaDrift(
+        "workspace_members",
+        'byWorkspace returned rows without `.related("user")` — users table not populated in local replica',
+      );
+      return null;
+    }
     if (
-      sampleUser &&
       !validateRowShape(
         "users",
-        [sampleUser as Record<string, unknown>],
+        [rowsWithUser[0].user as unknown as Record<string, unknown>],
         ["id", "display_name", "is_deactivated"],
       )
     ) {
@@ -335,6 +349,10 @@ export async function searchMessagesViaZero(opts: {
   const handle = activeZeroOrNull();
   if (!handle) return null;
   if (isTableDrifted("messages")) return null;
+  // Empty needle would match every message via `.includes("")`. Treat
+  // an empty/whitespace-only query as "no search" and fall back to
+  // REST — caller decides whether that's a usage error or a no-op.
+  if (opts.query.trim() === "") return null;
 
   const limit = opts.limit ?? 25;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
