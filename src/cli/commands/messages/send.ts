@@ -4,7 +4,11 @@ import { withErrorHandler } from "../../middleware/error-handler.js";
 import { resolveAuth } from "../../../core/auth.js";
 import { createApiClient } from "../../../core/api-client.js";
 import { output } from "../../../core/output.js";
-import { resolveFiles, uploadAttachments } from "../../file-attachments.js";
+import {
+  collectFileArg,
+  resolveFiles,
+  uploadAttachments,
+} from "../../file-attachments.js";
 import { sendTextMessageViaZero } from "../../../zero/writes.js";
 
 export function registerSendMessage(parent: Command): void {
@@ -20,8 +24,9 @@ export function registerSendMessage(parent: Command): void {
     .option("-t, --thread <id>", "Reply in thread")
     .option("--mention <ids...>", "User IDs to @mention")
     .option(
-      "--file <paths...>",
-      'Local file path(s) to attach. Repeat the flag or pass comma-separated. Empty content is OK when --file is used (e.g. send a screenshot only with content "").',
+      "--file <path>",
+      'Local file to attach. Repeat the flag (--file a --file b) or pass comma-separated for multiple. Order-independent — does NOT swallow the content argument. Empty content is OK when --file is used (e.g. send a screenshot only with content "").',
+      collectFileArg,
     )
     .action(
       withErrorHandler(async (content, opts, cmd) => {

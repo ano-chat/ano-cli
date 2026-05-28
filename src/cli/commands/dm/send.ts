@@ -8,7 +8,11 @@ import {
   type SendGroupDmResult,
 } from "../../../core/api-client.js";
 import { output } from "../../../core/output.js";
-import { resolveFiles, uploadAttachments } from "../../file-attachments.js";
+import {
+  collectFileArg,
+  resolveFiles,
+  uploadAttachments,
+} from "../../file-attachments.js";
 
 /**
  * Normalise repeated `--to` values + comma-separated forms into a clean
@@ -43,8 +47,9 @@ export function registerSendDm(parent: Command): void {
       "Recipient user ID(s). Repeat or comma-separated; ≥2 = group DM",
     )
     .option(
-      "--file <paths...>",
-      'Local file path(s) to attach. Repeat the flag or pass comma-separated. Empty content is OK when --file is used (e.g. send a screenshot only with content "").',
+      "--file <path>",
+      'Local file to attach. Repeat the flag (--file a --file b) or pass comma-separated for multiple. Order-independent — does NOT swallow the content argument. Empty content is OK when --file is used (e.g. send a screenshot only with content "").',
+      collectFileArg,
     )
     .action(
       withErrorHandler(async (content, opts, cmd) => {

@@ -89,6 +89,22 @@ export class FileAttachmentError extends Error {
 }
 
 /**
+ * Commander option collector for a repeatable, NON-variadic `--file <path>`.
+ * Each `--file` consumes exactly one value, so a trailing positional
+ * `<content>` is never swallowed — `--file x.html "msg"` and
+ * `"msg" --file x.html` both parse correctly. Repeat the flag for
+ * multiple files; comma-separated values are split later by
+ * `resolveFiles`. (A variadic `--file <paths...>` greedily ate the
+ * positional and produced "missing required argument 'content'".)
+ */
+export function collectFileArg(
+  value: string,
+  previous: string[] = [],
+): string[] {
+  return previous.concat(value);
+}
+
+/**
  * Normalise the raw `--file` Commander values (string | string[] | undefined)
  * into an absolute, deduped path list. Resolves relative paths against
  * `process.cwd()` so the calling shell's cwd is the source of truth.
