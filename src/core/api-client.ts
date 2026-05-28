@@ -7,7 +7,7 @@ import {
   ApiError,
 } from "./errors.js";
 import { ExitCode } from "../cli/types.js";
-import { fetch as undiciFetch } from "undici";
+import { fetch as undiciFetch, FormData } from "undici";
 import { retryFetch, PermanentError } from "../bridge/retry.js";
 import { sharedHttpAgent } from "./http-agent.js";
 
@@ -572,6 +572,28 @@ export interface AnoApiClient {
   }>;
 }
 
+/**
+ * Build the multipart body for an upload. MUST use undici's `FormData`
+ * (imported above), NOT the Node global: `undiciFetch` checks
+ * `instanceof FormData` against the npm-undici class, and a global
+ * FormData (Node's *embedded* undici — a different realm) fails that
+ * check, so undici serializes it as a plain object with
+ * `content-type: text/plain` instead of `multipart/form-data`, and the
+ * server's `c.req.formData()` then throws "Invalid multipart body".
+ * The global `Blob` is fine inside undici's FormData. Exported so the
+ * realm invariant is regression-tested.
+ */
+export function buildUploadFormData(opts: {
+  body: Buffer | Uint8Array;
+  filename: string;
+  contentType: string;
+}): FormData {
+  const fd = new FormData();
+  const blob = new Blob([Buffer.from(opts.body)], { type: opts.contentType });
+  fd.append("file", blob, opts.filename);
+  return fd;
+}
+
 export function createApiClient(auth: ResolvedAuth): AnoApiClient {
   const { key, endpoint } = auth;
 
@@ -607,12 +629,7 @@ export function createApiClient(auth: ResolvedAuth): AnoApiClient {
     filename: string;
     contentType: string;
   }): Promise<UploadedAttachment> {
-    const fd = new FormData();
-    // Node's undici Blob accepts a Uint8Array; copy via Buffer.from to
-    // guarantee a fresh ArrayBuffer (some Node versions are picky about
-    // shared underlying buffers).
-    const blob = new Blob([Buffer.from(opts.body)], { type: opts.contentType });
-    fd.append("file", blob, opts.filename);
+    const fd = buildUploadFormData(opts);
     try {
       // No retryFetch — multipart bodies are not safely re-playable
       // (FormData stream consumption + 25 MB ceiling). One shot. Still
