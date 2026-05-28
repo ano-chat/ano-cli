@@ -130,6 +130,13 @@ export async function createZeroClient(
 
   const zero = new Zero<CliSchema>({
     userID: userId,
+    // ctx.sub is what every named query in
+    // `packages/shared/src/queries/` destructures to filter rows
+    // by the caller. Without it, `ctx.sub` is undefined at
+    // client-side query execution and Zero throws
+    // `Cannot read properties of undefined (reading 'sub')`.
+    // Matches the desktop's setup in apps/desktop/src/lib/zero.ts.
+    context: { sub: userId },
     server: opts.cacheURL,
     schema: cliSchema,
     auth: initialToken,
