@@ -135,12 +135,22 @@ export const cliMutators = defineMutators({
       // runs the full membership check + post-insert effects
       // (notifications, last_message_at, embedding queue) via the
       // server-mutator extension layer.
+      //
+      // Forwarded fields are only those that exist in the CLI's
+      // vendored schema (`schema.ts`). `is_edited` is required there
+      // (declared as `boolean()`, not optional), so the local insert
+      // MUST pass it — empirically Zero's local CRUD is permissive
+      // and accepted the omission during smoke, but a future schema
+      // tightening would surface this as a hard error. Server-side
+      // schema has `updated_at`, `kind`, `payload`, `mentions`, etc.
+      // — none replicated to the CLI, so we drop them here.
       await tx.mutate.messages.insert({
         id: args.id,
         channel_id: args.channel_id,
         user_id: args.user_id,
         content: args.content,
         created_at: args.created_at,
+        is_edited: args.is_edited,
       });
     }),
   },
