@@ -24,7 +24,9 @@
     "format": "prettier --write .",
     "surface:update": "tsx snapshots/update-surface.ts",
     "surface:check": "tsx snapshots/update-surface.ts --check",
-    "ci": "npm run typecheck && npm run test && npm run test:keepalive && npm run test:cache && npm run build"
+    "ci": "npm run typecheck && npm run test && npm run test:keepalive && npm run test:cache && npm run build",
+    "smoke:staging": "node dist/index.js dev smoke --expect-endpoint https://api-staging.ano.dev",
+    "smoke:local": "node dist/index.js dev smoke --expect-endpoint http://127.0.0.1:3001 --no-write"
   },
   "publishConfig": {
     "access": "public"
