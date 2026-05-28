@@ -69,6 +69,7 @@ async function createCliZeroJwtRequest({
 interface CachedToken {
   token: string;
   expiresAt: number; // unix ms
+  mintedAt: number; // unix ms — wall-clock at the time we received the token
 }
 
 export interface ZeroAuthOptions {
@@ -96,25 +97,25 @@ export interface ZeroAuthOptions {
  */
 export function createZeroAuthProvider(opts: ZeroAuthOptions) {
   let cached: CachedToken | null = null;
-  // Proactive refresh at 80% of token lifetime. A 12 h token gets
-  // refreshed at 9.6 h. Conservative — keeps long-running daemons
-  // healthy without thrashing the mint endpoint.
+  // Refresh proactively when the token has <20% of its remaining
+  // lifetime AT MINT TIME left. We track `mintedAt` per-token, so the
+  // math works for any server-chosen TTL (no hardcoded 12h assumption).
   const REFRESH_AT = 0.8;
+  // Safety floor: never let a token get within 60s of `expiresAt`
+  // regardless of TTL. Protects against very short TTLs (e.g. a test
+  // endpoint returning 30s tokens) where 80% would still leave us
+  // serving an expired token by the time the next request lands.
+  const REFRESH_FLOOR_MS = 60_000;
   const log = opts.log ?? (() => {});
 
   function isFresh(token: CachedToken | null): token is CachedToken {
     if (!token) return false;
-    const lifetime = token.expiresAt - tokenIssuedAt(token);
-    const refreshThreshold = tokenIssuedAt(token) + lifetime * REFRESH_AT;
+    const lifetime = token.expiresAt - token.mintedAt;
+    const refreshThreshold = Math.min(
+      token.mintedAt + lifetime * REFRESH_AT,
+      token.expiresAt - REFRESH_FLOOR_MS,
+    );
     return Date.now() < refreshThreshold;
-  }
-
-  // We don't track issued-at separately — we approximate it as
-  // `expiresAt - 12h`. This is robust if the server changes the TTL
-  // (we still refresh at 80% of whatever lifetime we observe).
-  function tokenIssuedAt(token: CachedToken): number {
-    const APPROX_LIFETIME = 12 * 60 * 60 * 1000;
-    return token.expiresAt - APPROX_LIFETIME;
   }
 
   async function mintFresh(): Promise<CachedToken | null> {
@@ -127,6 +128,7 @@ export function createZeroAuthProvider(opts: ZeroAuthOptions) {
       const fresh: CachedToken = {
         token: result.token,
         expiresAt: result.expires_at,
+        mintedAt: Date.now(),
       };
       cached = fresh;
       log("zero-auth: minted", {

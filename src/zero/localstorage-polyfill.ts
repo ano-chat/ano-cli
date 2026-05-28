@@ -44,7 +44,6 @@ let installed = false;
 
 export function installLocalStoragePolyfill(): void {
   if (installed) return;
-  installed = true;
 
   // Detect a functional localStorage. The Node experimental impl is
   // truthy but missing methods; the Bun impl varies. Check for the
@@ -55,6 +54,7 @@ export function installLocalStoragePolyfill(): void {
     typeof (existing as { getItem?: unknown }).getItem === "function" &&
     typeof (existing as { setItem?: unknown }).setItem === "function"
   ) {
+    installed = true;
     return;
   }
 
@@ -76,41 +76,49 @@ export function installLocalStoragePolyfill(): void {
     // file doesn't exist yet — Zero will create one on first setItem
   }
 
-  Object.defineProperty(globalThis, "localStorage", {
-    configurable: true,
-    writable: true,
-    value: {
-      getItem(key: string): string | null {
-        return store.has(key) ? (store.get(key) as string) : null;
-      },
-      setItem(key: string, value: string): void {
-        const v = String(value);
-        store.set(key, v);
-        // Persist only `profileId` — the only key Zero actually
-        // writes here, and the only one that matters across restarts.
-        // Other keys (if any) stay in-memory.
-        if (key === "profileId") {
-          try {
-            mkdirSync(dirname(profileIdPath), { recursive: true });
-            writeFileSync(profileIdPath, v, { mode: 0o600 });
-          } catch {
-            // best-effort — losing persistence just means Zero
-            // re-allocates on next start.
+  try {
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      writable: true,
+      value: {
+        getItem(key: string): string | null {
+          return store.has(key) ? (store.get(key) as string) : null;
+        },
+        setItem(key: string, value: string): void {
+          const v = String(value);
+          store.set(key, v);
+          // Persist only `profileId` — the only key Zero actually
+          // writes here, and the only one that matters across restarts.
+          // Other keys (if any) stay in-memory.
+          if (key === "profileId") {
+            try {
+              mkdirSync(dirname(profileIdPath), { recursive: true });
+              writeFileSync(profileIdPath, v, { mode: 0o600 });
+            } catch {
+              // best-effort — losing persistence just means Zero
+              // re-allocates on next start.
+            }
           }
-        }
+        },
+        removeItem(key: string): void {
+          store.delete(key);
+        },
+        clear(): void {
+          store.clear();
+        },
+        key(index: number): string | null {
+          return [...store.keys()][index] ?? null;
+        },
+        get length(): number {
+          return store.size;
+        },
       },
-      removeItem(key: string): void {
-        store.delete(key);
-      },
-      clear(): void {
-        store.clear();
-      },
-      key(index: number): string | null {
-        return [...store.keys()][index] ?? null;
-      },
-      get length(): number {
-        return store.size;
-      },
-    },
-  });
+    });
+    installed = true;
+  } catch {
+    // defineProperty failed (e.g. localStorage is a non-configurable
+    // global). Leave `installed = false` so the next caller can retry;
+    // Zero will error loudly when it touches `getItem`, which is
+    // still a better outcome than silently masking the install.
+  }
 }

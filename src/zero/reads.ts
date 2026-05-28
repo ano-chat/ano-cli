@@ -228,13 +228,27 @@ export async function listUsersViaZero(opts: {
     ) {
       return null;
     }
-    // Validate the related `user` row shape if any are present.
-    const sampleUser = (rows as WorkspaceMemberRow[]).find((r) => r.user)?.user;
+    // The server's `workspace_members.byWorkspace` does NOT
+    // `.related("user")` — joined user data only materializes
+    // locally if the users table is independently subscribed (e.g.
+    // because a `messages.byChannelComposite` subscription has
+    // `.related("sender")` populating users for the active channel).
+    // If we have member rows but no user joins, the replica doesn't
+    // have enough data — fall back to REST rather than silently
+    // returning an empty roster. Track once-per-daemon via the drift
+    // registry so subsequent calls short-circuit fast.
+    const rowsWithUser = (rows as WorkspaceMemberRow[]).filter((r) => r.user);
+    if (rowsWithUser.length === 0) {
+      registerSchemaDrift(
+        "workspace_members",
+        'byWorkspace returned rows without `.related("user")` — users table not populated in local replica',
+      );
+      return null;
+    }
     if (
-      sampleUser &&
       !validateRowShape(
         "users",
-        [sampleUser as Record<string, unknown>],
+        [rowsWithUser[0].user as unknown as Record<string, unknown>],
         ["id", "display_name", "is_deactivated"],
       )
     ) {
@@ -335,6 +349,10 @@ export async function searchMessagesViaZero(opts: {
   const handle = activeZeroOrNull();
   if (!handle) return null;
   if (isTableDrifted("messages")) return null;
+  // Empty needle would match every message via `.includes("")`. Treat
+  // an empty/whitespace-only query as "no search" and fall back to
+  // REST — caller decides whether that's a usage error or a no-op.
+  if (opts.query.trim() === "") return null;
 
   const limit = opts.limit ?? 25;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -347,12 +365,33 @@ export async function searchMessagesViaZero(opts: {
     // ~10K-row materialize (slow once); subsequent searches reuse
     // the warm replica (microseconds local LIKE scan). No server
     // FTS query exists today — this is the pragmatic substitute.
-    const queryRef = cliQueries.messages.recentByUserMemberships(10000);
-    const allRows = (await withTimeout(
-      z.run(queryRef, { type: "complete" }),
-    )) as Record<string, unknown>[] | null;
+    // Subscribe to users IN PARALLEL with the message pull. Server's
+    // `recentByUserMemberships` doesn't `.related("sender")`, so we
+    // need users in the local replica to resolve display names —
+    // otherwise every match prints "unknown". `users.byWorkspacesOfUser`
+    // is the matching server-side query; once it lands, subsequent
+    // searches stay warm.
+    const messagesQueryRef = cliQueries.messages.recentByUserMemberships(10000);
+    const usersQueryRef = cliQueries.users.byWorkspacesOfUser();
+    const [allRows, userRows] = (await Promise.all([
+      withTimeout(z.run(messagesQueryRef, { type: "complete" })),
+      withTimeout(z.run(usersQueryRef, { type: "complete" })),
+    ])) as [Record<string, unknown>[] | null, Record<string, unknown>[] | null];
     if (allRows === null) return null;
     if (Array.isArray(allRows) && allRows.length === 0) return null;
+
+    // Build a userId → display_name lookup. userRows may be null (the
+    // users subscription hit the timeout); fall back to "unknown" then.
+    const userById = new Map<string, string>();
+    if (Array.isArray(userRows)) {
+      for (const u of userRows) {
+        const id = u.id;
+        const name = u.display_name;
+        if (typeof id === "string" && typeof name === "string") {
+          userById.set(id, name);
+        }
+      }
+    }
 
     // Client-side filter: content contains query (case-insensitive).
     // Workspace scope: the named query already filters to the user's
@@ -385,7 +424,7 @@ export async function searchMessagesViaZero(opts: {
       id: r.id,
       sender: {
         id: r.sender?.id ?? r.user_id,
-        name: r.sender?.display_name ?? "unknown",
+        name: r.sender?.display_name ?? userById.get(r.user_id) ?? "unknown",
       },
       content: r.content,
       timestamp: r.created_at,
