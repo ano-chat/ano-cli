@@ -4,6 +4,27 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.25.4] — 2026-05-28
+
+### Fixed
+
+- **File attachments via `ano messages send --file` / `dm send --file`
+  now work** (PR #79). Two bugs, both surfaced while attaching a file
+  from the CLI:
+  - **`Invalid multipart body`** — the upload built the body with Node's
+    global `FormData` but sent it through the npm-`undici` `fetch`.
+    undici's fetch checks `instanceof FormData` against its OWN class;
+    the global one (Node's embedded undici, a different realm) fails that
+    check, so undici serialized the body as `text/plain` instead of
+    `multipart/form-data` and the server rejected it. Now uses undici's
+    `FormData` so the realms match.
+
+  - **`missing required argument 'content'`** — `--file <paths...>` was
+    variadic and greedily swallowed the `<content>` positional when it
+    came after `--file`. It's now a non-variadic repeatable collector
+    (`--file <path>`), so content parses correctly regardless of order.
+    Multiple files still work via repeated `--file` or comma-separated.
+
 ## [2.25.3] — 2026-05-28
 
 ### Fixed
