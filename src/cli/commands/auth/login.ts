@@ -85,6 +85,15 @@ export function registerAuthLogin(parent: Command): void {
   parent
     .command("login")
     .description("Save an API key for authentication")
+    // NOTE: `--profile` is ALSO declared on the root command in
+    // `src/cli/root.ts` (with env binding `ANO_PROFILE`). Commander
+    // resolves the user-supplied value into `globals.profile`; the
+    // subcommand-local copy here exists only to preserve the
+    // `--help` listing for `ano auth login --help`. The action body
+    // MUST read from `globals.profile` (falling back to the
+    // subcommand default "default"), not from `opts.profile` —
+    // pre-v2.25.4 used `opts.profile` and silently ignored
+    // `--profile <name>`, overwriting whatever was at `default`.
     .option("-p, --profile <name>", "Profile name", "default")
     .option(
       "--workspace-id <id>",
@@ -112,6 +121,14 @@ export function registerAuthLogin(parent: Command): void {
         const globals = cmd.optsWithGlobals();
         const endpoint = globals.endpoint ?? "https://api.ano.dev";
         const key = globals.key ?? process.env.ANO_API_KEY;
+        // `--profile` is declared on BOTH root and subcommand (see
+        // the .option() call above for the historical reason). The
+        // user's `-p <name>` lands in `globals.profile`; the
+        // subcommand local `opts.profile` still carries the default
+        // "default". Prefer globals so an explicit `--profile foo`
+        // is honored.
+        const profile: string =
+          (globals.profile as string | undefined) ?? opts.profile ?? "default";
 
         if (key) {
           if (opts.printWorkspaces) {
@@ -123,7 +140,7 @@ export function registerAuthLogin(parent: Command): void {
           await saveValidatedKey({
             key,
             endpoint,
-            profile: opts.profile,
+            profile,
           });
           return;
         }
@@ -248,7 +265,7 @@ export function registerAuthLogin(parent: Command): void {
         });
 
         saveProfile({
-          profile: opts.profile,
+          profile,
           key: apiKey,
           endpoint: regionalEndpoint,
           workspaceId: workspace.id,
@@ -268,7 +285,7 @@ export function registerAuthLogin(parent: Command): void {
           `${green("Authenticated")}${displayName ? ` as ${displayName}` : ""} in ${workspace.name}`,
         );
         console.log(
-          `Profile "${opts.profile}" saved to ~/.config/ano/credentials.json`,
+          `Profile "${profile}" saved to ~/.config/ano/credentials.json`,
         );
       }),
     );
