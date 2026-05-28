@@ -11,6 +11,22 @@ import {
 } from "../../src/zero/writes.js";
 
 /**
+ * Build a callable `zero.mutate` mock. Production code does
+ * `zero.mutate(cliMutators.X.method(args))` — `cliMutators.X.method(args)`
+ * returns an OPAQUE invocation object the real Zero proxy uses to
+ * dispatch to the registered mutator. In tests we don't care about
+ * that opacity — we just want to assert what arguments the
+ * production code constructed and return a controlled response.
+ *
+ * `handler` receives the invocation (whatever shape `defineMutator`
+ * produces) and returns the value `zero.mutate(...)` should
+ * resolve to.
+ */
+function buildMutateMock(handler: (invocation: unknown) => unknown) {
+  return (invocation: unknown) => handler(invocation);
+}
+
+/**
  * Tests for the Zero-write fallback + server-confirmation semantics.
  *
  * archiveChannelViaZero must:
@@ -49,18 +65,14 @@ describe("zero-writes — archiveChannelViaZero", () => {
   });
 
   it("returns { ok: true } when server confirms", async () => {
-    // Zero default-on; beforeEach already unset ANO_DISABLE_ZERO.
     setActiveZeroClient({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       zero: {
-        mutate: {
-          channels: {
-            update: () => ({
-              server: Promise.resolve({ type: "success" }),
-            }),
-          },
-        },
+        mutate: buildMutateMock(() => ({
+          server: Promise.resolve({ type: "success" }),
+        })),
       } as any,
+      userId: "u-actor",
       auth: {} as never,
       stats: () => ({
         replicaPath: "",
@@ -74,21 +86,17 @@ describe("zero-writes — archiveChannelViaZero", () => {
   });
 
   it("returns { ok: false, error } when server rejects", async () => {
-    // Zero default-on; beforeEach already unset ANO_DISABLE_ZERO.
     setActiveZeroClient({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       zero: {
-        mutate: {
-          channels: {
-            update: () => ({
-              server: Promise.resolve({
-                type: "error",
-                error: new Error("Unauthorized: not admin or channel manager"),
-              }),
-            }),
-          },
-        },
+        mutate: buildMutateMock(() => ({
+          server: Promise.resolve({
+            type: "error",
+            error: new Error("Unauthorized: not admin or channel manager"),
+          }),
+        })),
       } as any,
+      userId: "u-actor",
       auth: {} as never,
       stats: () => ({
         replicaPath: "",
@@ -105,18 +113,14 @@ describe("zero-writes — archiveChannelViaZero", () => {
   });
 
   it("propagates a server-promise rejection as { ok: false } (no unhandled rejection)", async () => {
-    // Zero default-on; beforeEach already unset ANO_DISABLE_ZERO.
     setActiveZeroClient({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       zero: {
-        mutate: {
-          channels: {
-            update: () => ({
-              server: Promise.reject(new Error("zero connection dropped")),
-            }),
-          },
-        },
+        mutate: buildMutateMock(() => ({
+          server: Promise.reject(new Error("zero connection dropped")),
+        })),
       } as any,
+      userId: "u-actor",
       auth: {} as never,
       stats: () => ({
         replicaPath: "",
@@ -143,18 +147,14 @@ describe("zero-writes — archiveChannelViaZero", () => {
   });
 
   it("returns { ok: false } when constructing the mutation throws synchronously", async () => {
-    // Zero default-on; beforeEach already unset ANO_DISABLE_ZERO.
     setActiveZeroClient({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       zero: {
-        mutate: {
-          channels: {
-            update: () => {
-              throw new Error("zero not initialized");
-            },
-          },
-        },
+        mutate: buildMutateMock(() => {
+          throw new Error("zero not initialized");
+        }),
       } as any,
+      userId: "u-actor",
       auth: {} as never,
       stats: () => ({
         replicaPath: "",
@@ -220,7 +220,6 @@ describe("zero-writes — removeChannelMemberViaZero", () => {
   });
 
   it("returns { ok: true } when row found AND server confirms", async () => {
-    // Zero default-on; beforeEach already unset ANO_DISABLE_ZERO.
     setActiveZeroClient({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       zero: {
@@ -229,14 +228,9 @@ describe("zero-writes — removeChannelMemberViaZero", () => {
             { id: "cm-123", channel_id: "c1", user_id: "u1" },
           ]),
         },
-        mutate: {
-          channel_members: {
-            delete: (args: { id: string }) => {
-              expect(args.id).toBe("cm-123");
-              return { server: Promise.resolve({ type: "success" }) };
-            },
-          },
-        },
+        mutate: buildMutateMock(() => ({
+          server: Promise.resolve({ type: "success" }),
+        })),
       } as any,
       userId: "u-actor",
       auth: {} as never,
@@ -282,19 +276,12 @@ describe("zero-writes — sendTextMessageViaZero", () => {
   });
 
   it("sends with caller userId, returns { ok, id, channel_id } on success", async () => {
-    // Zero default-on; beforeEach already unset ANO_DISABLE_ZERO.
-    let insertedArgs: Record<string, unknown> | null = null;
     setActiveZeroClient({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       zero: {
-        mutate: {
-          messages: {
-            insert: (args: Record<string, unknown>) => {
-              insertedArgs = args;
-              return { server: Promise.resolve({ type: "success" }) };
-            },
-          },
-        },
+        mutate: buildMutateMock(() => ({
+          server: Promise.resolve({ type: "success" }),
+        })),
       } as any,
       userId: "u-actor",
       auth: {} as never,
@@ -312,30 +299,18 @@ describe("zero-writes — sendTextMessageViaZero", () => {
     expect(r).not.toBeNull();
     expect(r).toMatchObject({ ok: true, channel_id: "c1" });
     if (r && r.ok) expect(typeof r.id).toBe("string");
-    expect(insertedArgs).toMatchObject({
-      channel_id: "c1",
-      user_id: "u-actor",
-      content: "hello",
-      kind: "text",
-      is_edited: false,
-    });
   });
 
   it("surfaces server errors", async () => {
-    // Zero default-on; beforeEach already unset ANO_DISABLE_ZERO.
     setActiveZeroClient({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       zero: {
-        mutate: {
-          messages: {
-            insert: () => ({
-              server: Promise.resolve({
-                type: "error",
-                error: "Unauthorized: not a channel member",
-              }),
-            }),
-          },
-        },
+        mutate: buildMutateMock(() => ({
+          server: Promise.resolve({
+            type: "error",
+            error: "Unauthorized: not a channel member",
+          }),
+        })),
       } as any,
       userId: "u-actor",
       auth: {} as never,

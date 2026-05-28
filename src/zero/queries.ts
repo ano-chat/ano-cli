@@ -81,14 +81,6 @@ const channelsQueries = {
 };
 
 /**
- * User queries. Reuses `workspace_members.activeByWorkspace` from
- * the monorepo's queries registry (TODO: confirm exact name).
- *
- * For `ano users list --workspace W`: returns workspace_members
- * rows with `.related("user")`, filtered to active members of the
- * workspace, visible only to the requesting user.
- */
-/**
  * Message queries.
  *
  * Names + shapes must match `messagesQueries` in
