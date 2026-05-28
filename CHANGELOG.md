@@ -4,6 +4,35 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.23.3] — 2026-05-28
+
+### Fixed
+
+- **Empty Zero result now falls back to REST** instead of surfacing
+  `(empty)` to the user. v2.23.2's read helpers trusted Zero's
+  empty-array response as "workspace genuinely has 0 rows"; in
+  practice, empty-from-Zero today is dominated by the staging
+  server's data-streaming bug (the customQueryTransformer doesn't
+  fill the replica for anonymous legacy queries — investigation
+  ongoing). Falling back is asymmetrically safe: ~100ms wasted on a
+  truly empty workspace (rare), vs returning correct data when the
+  Zero pipeline is degraded (current persistent state).
+
+- Applies to all four read helpers: `channels list`, `users list`,
+  `messages read`, `messages search`. Each one returns `null` (the
+  caller-falls-back-to-REST signal) when `q.run()` resolves to
+  `[]`.
+
+### Notes
+
+- This is a heuristic, not a permanent design. Once the Zero
+  data-streaming path is fixed (likely v2.24.0 — vendored named
+  queries from `packages/shared/src/queries/`), we'll either drop
+  this fallback or scope it tighter (e.g. only fall back if
+  daemon uptime < 60s, suggesting cold start).
+- Drift detection unchanged: empty results don't register drift
+  (no sample row to validate columns against).
+
 ## [2.23.2] — 2026-05-27
 
 ### Fixed

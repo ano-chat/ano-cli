@@ -260,7 +260,13 @@ describe("zero-reads — fallback semantics", () => {
     expect(driftLogs[0]).toMatch(/'is_private'/);
   });
 
-  it("does NOT register drift for an empty result (can't determine)", async () => {
+  it("falls through to REST on empty result (v2.23.3 — empty isn't trusted)", async () => {
+    // Zero returns `[]`. Under v2.23.2 we'd surface `(empty)` to the
+    // user, which masked the staging-server data-streaming bug where
+    // the server fails to fill the replica. v2.23.3 treats empty as
+    // a miss → caller falls back to REST. Cost: ~100ms wasted on a
+    // genuinely empty workspace (rare). Benefit: users with real
+    // channels see them when the server-side data path is flaky.
     const fakeQuery = makeChainStub([]);
     setActiveZeroClient({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -274,7 +280,58 @@ describe("zero-reads — fallback semantics", () => {
       dispose: async () => {},
     });
     const result = await listChannelsViaZero({});
-    expect(result).toEqual({ channels: [] });
+    expect(result).toBeNull();
+  });
+
+  it("also does NOT register drift on empty (drift detection needs a sample row)", async () => {
+    // Sibling assertion: even with the new "empty → null" behavior,
+    // we must NOT mark the table as drifted (drift means "schema
+    // mismatch", not "no data"). The drift detector only fires when
+    // a sample row is missing expected columns; zero rows means we
+    // can't determine, so we don't taint the table.
+    const fakeQuery = makeChainStub([]);
+    setActiveZeroClient({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      zero: { query: { channels: fakeQuery } } as any,
+      auth: {} as never,
+      stats: () => ({
+        replicaPath: "",
+        replicaSizeBytes: null,
+        connectionStatus: "connected",
+      }),
+      dispose: async () => {},
+    });
+    // Call once — should not register drift.
+    await listChannelsViaZero({});
+    // Second call would skip Zero if drift were registered. With a
+    // non-empty stub this time, the call should return rows again,
+    // proving drift state stayed clean.
+    setActiveZeroClient({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      zero: {
+        query: {
+          channels: makeChainStub([
+            {
+              id: "c1",
+              name: "general",
+              type: "channel",
+              topic: null,
+              is_private: false,
+            },
+          ]),
+        },
+      } as any,
+      auth: {} as never,
+      stats: () => ({
+        replicaPath: "",
+        replicaSizeBytes: null,
+        connectionStatus: "connected",
+      }),
+      dispose: async () => {},
+    });
+    const result2 = await listChannelsViaZero({});
+    expect(result2).not.toBeNull();
+    expect(result2!.channels).toHaveLength(1);
   });
 });
 
