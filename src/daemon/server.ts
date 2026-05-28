@@ -43,7 +43,7 @@ import {
 } from "./protocol.js";
 import { createProgram } from "../cli/root.js";
 import { registerAllCommands } from "../cli/register.js";
-import { loadGlobalCredentials, loadProjectConfig } from "../core/config.js";
+import { resolveBootstrapProfile } from "../core/auth.js";
 import { prewarmConnection } from "../core/http-agent.js";
 import { cacheStats } from "../core/response-cache.js";
 import { createZeroClient, isZeroEnabled } from "../zero/client.js";
@@ -196,18 +196,18 @@ async function bootstrapZero(): Promise<void> {
     setActiveZeroClient(null);
   }
 
+  // Mirror the CLI client's profile resolution: ANO_PROFILE → project
+  // config → auto-local (cwd has dev:local marker) → default. Before
+  // this, the daemon was hardcoded to `profiles.default`, so a user
+  // running `dev:local` would see CLI invocations correctly auto-pick
+  // the `local` profile but the daemon's Zero + HTTP keepalive would
+  // still target staging — `ano channels list` returned staging
+  // data while `users list` showed local. The cross-env data leak
+  // this resolution prevents.
   let apiKey: string | undefined;
   let endpoint: string | undefined;
   try {
-    const project = loadProjectConfig();
-    if (project?.endpoint) endpoint = project.endpoint;
-    if (project?.key) apiKey = project.key;
-    if (!apiKey || !endpoint) {
-      const creds = loadGlobalCredentials();
-      const profile = creds?.profiles.default;
-      if (!apiKey && profile?.key) apiKey = profile.key;
-      if (!endpoint && profile?.endpoint) endpoint = profile.endpoint;
-    }
+    ({ key: apiKey, endpoint } = resolveBootstrapProfile(process.cwd()));
   } catch {
     return;
   }
@@ -239,14 +239,11 @@ async function prewarmDefaultEndpoint(): Promise<void> {
     if (process.env.ANO_ENDPOINT) {
       endpoint = process.env.ANO_ENDPOINT;
     } else {
-      const project = loadProjectConfig();
-      if (project?.endpoint) {
-        endpoint = project.endpoint;
-      } else {
-        const creds = loadGlobalCredentials();
-        const profile = creds?.profiles.default;
-        if (profile?.endpoint) endpoint = profile.endpoint;
-      }
+      // Same resolution as bootstrapZero — honor ANO_PROFILE, project
+      // config, auto-local, then default. Previously hardcoded to
+      // `profiles.default`, which opened keepalive to staging from a
+      // user running dev:local.
+      ({ endpoint } = resolveBootstrapProfile(process.cwd()));
     }
   } catch {
     // ignore — pre-warm is best effort

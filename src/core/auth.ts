@@ -115,14 +115,80 @@ function isEnvFlagSet(name: string): boolean {
 }
 
 /**
+ * Resolve which profile the DAEMON should bootstrap from. Mirrors
+ * `resolveAuth`'s profile-picking chain minus the `--key`/`--profile`
+ * CLI flags (the daemon doesn't have access to those):
+ *
+ *   1. `ANO_PROFILE` env (explicit; errors silently if missing)
+ *   2. `.ano/config.json` project key/endpoint (cwd-anchored)
+ *   3. Auto-local — when cwd is under a running `dev:local` Postgres
+ *      AND a `local` profile exists, prefer it. Same gate as the CLI
+ *      client; disable with `ANO_NO_AUTO_LOCAL=1`.
+ *   4. `default` (or first) profile from global credentials.
+ *
+ * Returns `{ key, endpoint }` on success, both `undefined` on miss
+ * (caller falls back to whatever — daemon currently skips Zero
+ * bootstrap entirely in that case).
+ *
+ * The daemon was previously hardcoded to `profiles.default`, so a
+ * user running `dev:local` from the monorepo would see CLI calls
+ * print "profile: local (auto)" but the daemon's Zero + HTTP
+ * keepalive would still target staging. `ano channels list` returned
+ * staging data while `users list` showed local — the cross-env data
+ * leak that this function exists to prevent.
+ */
+export function resolveBootstrapProfile(cwd: string): {
+  key?: string;
+  endpoint?: string;
+} {
+  // 1. Explicit ANO_PROFILE.
+  const explicitName = process.env.ANO_PROFILE;
+  if (explicitName) {
+    const creds = loadGlobalCredentials();
+    const named = creds?.profiles[explicitName];
+    if (named?.key) {
+      return { key: named.key, endpoint: named.endpoint };
+    }
+    // Explicit-but-missing: don't fall through, let caller skip
+    // bootstrap rather than silently pick the wrong profile.
+    return {};
+  }
+
+  // 2. Project config (cwd-anchored).
+  const project = loadProjectConfig();
+  if (project?.key && project?.endpoint) {
+    return { key: project.key, endpoint: project.endpoint };
+  }
+
+  const creds = loadGlobalCredentials();
+  if (!creds) return {};
+
+  // 3. Auto-local — only when there IS a `local` profile to pick.
+  if (!isEnvFlagSet("ANO_NO_AUTO_LOCAL")) {
+    const local = creds.profiles.local;
+    if (local?.key && isUnderRunningDevLocal(cwd)) {
+      return { key: local.key, endpoint: local.endpoint };
+    }
+  }
+
+  // 4. Default profile.
+  const profile = creds.profiles.default ?? Object.values(creds.profiles)[0];
+  return { key: profile?.key, endpoint: profile?.endpoint };
+}
+
+/**
  * Walk up from `cwd` looking for `.ano/dev/postgres/postmaster.pid` —
  * the file embedded-postgres writes when `npm run dev:local` brings
  * the local stack up. Returns true on the first ancestor that has it.
  *
  * Cheap (sync stat per ancestor; bounded by filesystem depth). Stops
  * at the filesystem root.
+ *
+ * Exported for daemon use — the daemon needs the same auto-local
+ * detection at bootstrap time so its Zero + REST keepalive bind to
+ * the right environment.
  */
-function isUnderRunningDevLocal(cwd: string): boolean {
+export function isUnderRunningDevLocal(cwd: string): boolean {
   let dir = cwd;
   // Cap at 32 levels just in case of pathological symlinks.
   for (let i = 0; i < 32; i++) {
