@@ -101,15 +101,13 @@ describe("zero-reads — fallback semantics", () => {
 
   it("returns null when the query promise rejects asynchronously (no unhandled rejection)", async () => {
     // Zero default-on; beforeEach already unset ANO_DISABLE_ZERO.
-    // Build a chain whose `.run()` rejects after a microtask.
-    const rejectingChain = makeChainStub([]);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (rejectingChain as any).run = async () => {
-      throw new Error("zero query exploded");
-    };
     setActiveZeroClient({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      zero: { query: { channels: rejectingChain } } as any,
+      zero: {
+        run: async () => {
+          throw new Error("zero query exploded");
+        },
+      } as any,
       auth: {} as never,
       stats: () => ({
         replicaPath: "",
@@ -137,26 +135,31 @@ describe("zero-reads — fallback semantics", () => {
 
   it("returns rows shaped like REST when query resolves", async () => {
     // Zero default-on; beforeEach already unset ANO_DISABLE_ZERO.
-    // Mock a Zero query chain that returns three channels.
-    const fakeQuery = makeChainStub([
-      {
-        id: "c1",
-        name: "general",
-        type: "channel",
-        topic: null,
-        is_private: false,
-      },
-      {
-        id: "c2",
-        name: "random",
-        type: "channel",
-        topic: "off-topic",
-        is_private: false,
-      },
-    ]);
+    // v2.24.0+: helpers use `zero.run(namedQueryRef, {type:"complete"})`
+    // instead of `zero.query.X.where(...)`. Mock returns the rows
+    // directly from `run()`.
     setActiveZeroClient({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      zero: { query: { channels: fakeQuery } } as any,
+      zero: {
+        run: async () => [
+          {
+            id: "c1",
+            name: "general",
+            type: "channel",
+            topic: null,
+            is_private: false,
+            workspace_id: "w1",
+          },
+          {
+            id: "c2",
+            name: "random",
+            type: "channel",
+            topic: "off-topic",
+            is_private: false,
+            workspace_id: "w1",
+          },
+        ],
+      } as any,
       auth: {} as never,
       stats: () => ({
         replicaPath: "",
@@ -186,7 +189,7 @@ describe("zero-reads — fallback semantics", () => {
     _setLastStatusForTests("disconnected");
     setActiveZeroClient({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      zero: { query: { channels: makeChainStub([{ id: "c1" }]) } } as any,
+      zero: { run: async () => [{ id: "c1" }] } as any,
       auth: {} as never,
       stats: () => ({
         replicaPath: "",
@@ -202,7 +205,7 @@ describe("zero-reads — fallback semantics", () => {
     _setLastStatusForTests("connecting");
     setActiveZeroClient({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      zero: { query: { channels: makeChainStub([{ id: "c1" }]) } } as any,
+      zero: { run: async () => [{ id: "c1" }] } as any,
       auth: {} as never,
       stats: () => ({
         replicaPath: "",
@@ -218,18 +221,19 @@ describe("zero-reads — fallback semantics", () => {
 
   it("registers schema drift + returns null when an expected column is missing", async () => {
     // Channel row missing `is_private` — drift detected, fall back to REST.
-    const fakeQuery = makeChainStub([
-      {
-        id: "c1",
-        name: "general",
-        type: "channel",
-        topic: null,
-        // is_private intentionally absent (server renamed it / removed it)
-      },
-    ]);
     setActiveZeroClient({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      zero: { query: { channels: fakeQuery } } as any,
+      zero: {
+        run: async () => [
+          {
+            id: "c1",
+            name: "general",
+            type: "channel",
+            topic: null,
+            // is_private intentionally absent (server renamed/removed it)
+          },
+        ],
+      } as any,
       auth: {} as never,
       stats: () => ({
         replicaPath: "",
@@ -267,10 +271,9 @@ describe("zero-reads — fallback semantics", () => {
     // a miss → caller falls back to REST. Cost: ~100ms wasted on a
     // genuinely empty workspace (rare). Benefit: users with real
     // channels see them when the server-side data path is flaky.
-    const fakeQuery = makeChainStub([]);
     setActiveZeroClient({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      zero: { query: { channels: fakeQuery } } as any,
+      zero: { run: async () => [] } as any,
       auth: {} as never,
       stats: () => ({
         replicaPath: "",
@@ -289,10 +292,9 @@ describe("zero-reads — fallback semantics", () => {
     // mismatch", not "no data"). The drift detector only fires when
     // a sample row is missing expected columns; zero rows means we
     // can't determine, so we don't taint the table.
-    const fakeQuery = makeChainStub([]);
     setActiveZeroClient({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      zero: { query: { channels: fakeQuery } } as any,
+      zero: { run: async () => [] } as any,
       auth: {} as never,
       stats: () => ({
         replicaPath: "",
@@ -309,17 +311,15 @@ describe("zero-reads — fallback semantics", () => {
     setActiveZeroClient({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       zero: {
-        query: {
-          channels: makeChainStub([
-            {
-              id: "c1",
-              name: "general",
-              type: "channel",
-              topic: null,
-              is_private: false,
-            },
-          ]),
-        },
+        run: async () => [
+          {
+            id: "c1",
+            name: "general",
+            type: "channel",
+            topic: null,
+            is_private: false,
+          },
+        ],
       } as any,
       auth: {} as never,
       stats: () => ({

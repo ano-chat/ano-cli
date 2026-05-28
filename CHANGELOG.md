@@ -4,6 +4,56 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.24.0] — 2026-05-28
+
+### Added
+
+- **Zero reads now actually serve data from the local replica.**
+  Three bug fixes had to land together:
+  1. **Pass `context: { sub: userId }` to `new Zero({...})`.** Zero's
+     `addContextToQuery` calls `query.query.fn({ctx: context, args})` —
+     without `context` set in the constructor, every named query's
+     `ctx.sub` access throws `Cannot read properties of undefined`,
+     the catch swallows it, and we silently fall back to REST.
+     Matches the desktop's setup (`apps/desktop/src/lib/zero.ts:17`).
+  2. **Use named queries from a CLI-side `cliQueries` registry.**
+     Anonymous `zero.query.X.where(...)` produces queries with no
+     `queryName`; the server's `mustGetQuery(queries, name)` in
+     `server/app-zero-sync-routes.ts:270` rejects them and never
+     streams table data. The CLI now defines
+     `cliQueries.channels.activeByUser` +
+     `cliQueries.workspace_members.byWorkspace` with paths matching
+     the monorepo's `packages/shared/src/queries/index.ts`.
+  3. **Call `zero.run(queryRef, {type: "complete"})`.** The default
+     `zero.run()` returns whatever's in the local replica
+     immediately (empty on cold start); with `{type: "complete"}`
+     it waits for the server to materialize the query result into
+     the replica.
+
+  Verified end-to-end against `api-staging.ano.dev`: cold call 3 ms,
+  warm call 0 ms, total CLI wall time **54 ms** (Node startup +
+  daemon RPC + local SQLite read), 21 channels returned.
+
+- Read helpers migrated: `ano channels list` (channels.activeByUser),
+  `ano users list --workspace W` (workspace_members.byWorkspace).
+  `ano messages read` + `ano messages search` still use legacy
+  queries (and fall back to REST via v2.23.3) — migrating those
+  needs the right named query in the monorepo
+  (`messages.byChannelComposite` or similar; pending a closer
+  look).
+
+### Notes
+
+- Drift policy: when the monorepo renames a query (or changes its
+  argument shape), `src/zero/queries.ts` must update in lockstep.
+  Failure mode is loud — server replies with "unknown query name"
+  and reads fall back to REST. Same shape as `mutators.ts`.
+- `enableLegacyQueries: true` stays on the schema for now. Once
+  the remaining helpers (messages.read, messages.search) move to
+  named queries, that gate can come off.
+- Test mocks updated to stub `zero.run()` instead of the legacy
+  `zero.query.X.where(...)` chain. Wire is simpler; mocks are too.
+
 ## [2.23.3] — 2026-05-28
 
 ### Fixed

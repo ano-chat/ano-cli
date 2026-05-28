@@ -26,8 +26,14 @@ import {
   registerSchemaDrift,
 } from "./active-client.js";
 import type { Channel, User, Message } from "../core/api-client.js";
+import { cliQueries } from "./queries.js";
 
-const ZERO_READ_TIMEOUT_MS = 1500;
+// Cold call (first query after daemon start) goes through
+// zero.run(..., { type: "complete" }) which waits for the server
+// to materialize the named query. 5s gives the server-roundtrip
+// + ZQL eval room without making the user wait too long; if it
+// exceeds, fall back to REST.
+const ZERO_READ_TIMEOUT_MS = 5_000;
 
 /**
  * Schema-drift detector. Pass the table name + the expected column
@@ -125,23 +131,32 @@ export async function listChannelsViaZero(opts: {
   if (!handle) return null;
   if (isTableDrifted("channels")) return null;
 
-  // Zero's `query.X` exposes Query<T>; `.run()` materializes once.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const z = handle.zero as any;
   try {
-    // Filter to `type='channel'` to match REST's `listChannels`
-    // surface (REST excludes DMs and spaces — Zero replicates all
-    // three since they share the `channels` table). Without this,
-    // `ano channels list` over Zero returns DMs + spaces too, which
-    // is a regression from the REST behavior.
-    let q = z.query.channels
-      .where("type", "=", "channel")
-      .where("is_archived", "=", false);
-    // soft-deletes filtered at the publication level — not replicated
-    if (opts.workspace_id) {
-      q = q.where("workspace_id", "=", opts.workspace_id);
+    // Named query — `cliQueries.channels.activeByUser` has name
+    // `channels.activeByUser` matching the monorepo's server-side
+    // query. `zero.run(ref, { type: "complete" })` registers the
+    // subscription AND waits for the server to materialize the
+    // result. Without `{type: "complete"}`, run() returns whatever
+    // is already in the local replica (empty on cold start) and
+    // we'd uselessly fall through to REST.
+    // Named query — server's `mustGetQuery(queries, name)` lookup
+    // needs the name from `cliQueries.channels.activeByUser`. With
+    // `{type: "complete"}`, `run()` waits for the server to
+    // materialize the result into the local replica before
+    // resolving (cold call ~few-100ms; warm call ~microseconds).
+    const queryRef = cliQueries.channels.activeByUser();
+    let rows = (await withTimeout(z.run(queryRef, { type: "complete" }))) as
+      | Record<string, unknown>[]
+      | null;
+    // Client-side workspace filter (the server's
+    // `channels.activeByUser` returns ALL workspaces the user
+    // belongs to; we narrow here to match
+    // `ano channels list --workspace <id>`).
+    if (rows && opts.workspace_id) {
+      rows = rows.filter((r) => r.workspace_id === opts.workspace_id);
     }
-    const rows = await withTimeout(q.run());
     if (rows === null) return null;
     // Empty result — fall through to REST. Zero's protocol means an
     // empty array here can be either: (a) workspace genuinely has 0
@@ -164,7 +179,7 @@ export async function listChannelsViaZero(opts: {
       return null;
     }
     return {
-      channels: (rows as ChannelRow[]).map((r) => ({
+      channels: (rows as unknown as ChannelRow[]).map((r) => ({
         id: r.id,
         name: r.name,
         type: r.type,
@@ -194,13 +209,14 @@ export async function listUsersViaZero(opts: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const z = handle.zero as any;
   try {
-    const rows = await withTimeout(
-      z.query.workspace_members
-        .where("workspace_id", "=", opts.workspace_id)
-        .where("removed_at", "IS", null)
-        .related("user")
-        .run(),
+    // Named query `workspace_members.byWorkspace` matches the
+    // monorepo's `queries.workspace_members.byWorkspace`. Server
+    // returns active members of the requested workspace (already
+    // filtered to removed_at IS NULL) with `.related("user")`.
+    const queryRef = cliQueries.workspace_members.byWorkspace(
+      opts.workspace_id,
     );
+    const rows = await withTimeout(z.run(queryRef, { type: "complete" }));
     if (rows === null) return null;
     if (Array.isArray(rows) && rows.length === 0) return null;
     if (
