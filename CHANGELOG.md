@@ -4,6 +4,26 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.25.5] — 2026-05-28
+
+### Fixed
+
+- **`ano auth login --profile <name>` is now honored** (PR #81).
+  Pre-fix the flag was silently ignored: every login wrote to
+  `profiles.default`, OVERWRITING any prior default profile.
+  Latent since the CLI shipped because nobody exercised
+  `--profile` on the OAuth path until v2.25.3 made prod OAuth
+  actually work. Root cause: `--profile` was declared on BOTH the
+  root command AND the `auth login` subcommand; commander routed
+  the user value into `globals.profile` but the save code read
+  the subcommand-local `opts.profile` (which kept its default
+  `"default"`). Now reads `globals.profile` first.
+
+- **Multipart upload serialization** (PR #79, contributed by
+  @LeoNilsson). Correct `--file` non-greedy arg parsing for
+  `ano messages send`. Ships separately as v2.25.4 from Leo's
+  PR #80; v2.25.5 layers the auth fix on top.
+
 ## [2.25.3] — 2026-05-28
 
 ### Fixed
