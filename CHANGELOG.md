@@ -4,6 +4,64 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.25.1] — 2026-05-28
+
+### Fixed
+
+- **Daemon Zero + REST keepalive now honors auto-local and
+  `ANO_PROFILE`** (PR #71). The daemon's `bootstrapZero()` and
+  `prewarmDefaultEndpoint()` were hardcoded to `creds.profiles.default`,
+  so a user running `npm run dev:local` from the monorepo saw every
+  CLI invocation print "profile: local (auto)" — but the daemon's
+  Zero connection AND HTTP keepalive both opened against staging.
+  `ano channels list` returned staging data while `ano users list`
+  correctly returned local. Cross-env data leak.
+
+  Refactored the resolution into a shared `resolveBootstrapProfile`
+  that mirrors the CLI client's `resolveAuth` chain (`ANO_PROFILE`
+  → project config → auto-local → default). The daemon now binds
+  to the right profile at spawn time.
+
+- **Zero replica file partitioned by endpoint** (PR #73). WorkOS
+  issues the same userId across environments, so the local replica
+  at `~/.cache/ano/zero/rep_zero-<userId>-...sqlite` was shared
+  across staging + prod + local. Switching profiles silently reused
+  the previous environment's data. Replica filenames now include
+  a sanitized endpoint slug
+  (`user_<id>_sync-staging.ano.dev.sqlite` vs.
+  `user_<id>_sync-us.ano.dev.sqlite` vs.
+  `user_<id>_127.0.0.1_4848.sqlite`). Switching profiles means a
+  fresh per-env replica; Zero rebuilds from server on first
+  subscription. Orphaned replicas from before this fix stay on disk
+  until manually wiped.
+
+### Added — release infrastructure
+
+- **`ano dev smoke --expect-endpoint <url>`** flag (PR #72). Fails
+  fast in <1 ms with exit 1 when the resolved endpoint doesn't
+  match. Catches the bug class where a user runs `dev:local` but
+  the daemon's Zero/REST is bound elsewhere — exactly the bug PR
+  #71 fixes.
+- **`messages send (zero)` step** in `ano dev smoke`. Existing step
+  calls `client.sendMessage` (REST). Real users go through the
+  Zero-mutator path. The new step calls `sendTextMessageViaZero`
+  directly so smoke catches mutator-shape drift before users do.
+- **`npm run smoke:staging` / `smoke:local` scripts** for local
+  muscle memory.
+- **`release.yml` smoke gate**. Every release now blocks on a
+  real-staging smoke pass BEFORE `npm publish`. Reads the smoke
+  API key from Doppler (`ano/stg/ANO_API_KEY_SMOKE`) using the
+  same `DOPPLER_TOKEN_STAGING` GH secret the MIN_CLI_VERSION bump
+  uses. Mock-based unit tests can't catch mutator-wire-shape bugs
+  or schema drift between CLI and server; this gate does. Warns +
+  skips when the secret isn't provisioned (non-blocking during
+  rollout).
+
+### Added — features
+
+- **`ano channels list --unread`** (PR #62, contributed by
+  @LeoNilsson). Filter to channels with unread messages.
+
 ## [2.25.0] — 2026-05-28
 
 ### Added — Phase 3: writes via Zero mutators
