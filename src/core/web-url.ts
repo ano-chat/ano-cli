@@ -58,7 +58,15 @@ export async function resolveWebAppUrl(
         webAppUrl?: unknown;
       } | null;
       if (typeof body?.webAppUrl === "string" && body.webAppUrl.trim()) {
-        return body.webAppUrl.trim().replace(/\/+$/, "");
+        const candidate = body.webAppUrl.trim().replace(/\/+$/, "");
+        // Defense-in-depth: this value is embedded in a clickable
+        // "jump to message" link the user is primed to click. Do NOT
+        // trust an arbitrary origin from the response — a tampered or
+        // compromised /api/min-version could otherwise turn the link
+        // into a phishing redirect. Accept only an Ano web origin
+        // (https *.ano.dev) or localhost; otherwise derive from the
+        // endpoint the user already chose to trust.
+        if (isTrustedWebAppUrl(candidate)) return candidate;
       }
     }
   } catch {
@@ -67,4 +75,25 @@ export async function resolveWebAppUrl(
     clearTimeout(timer);
   }
   return deriveWebAppUrl(endpoint);
+}
+
+/**
+ * Whether a web app URL is safe to embed in a user-facing clickable
+ * deep-link. Mirrors the desktop shell interceptor's `isAnoWebOrigin`
+ * trust rule so both sides agree on what counts as "ours":
+ *   - https `*.ano.dev` (app.ano.dev / app-staging.ano.dev), or
+ *   - localhost / 127.0.0.1 (dev, any scheme).
+ * NOTE: hardcodes the ano.dev domain — revisit if white-label /
+ * self-hosted deployments land (would need to bind to the endpoint's
+ * registrable domain instead).
+ */
+function isTrustedWebAppUrl(value: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(value);
+  } catch {
+    return false;
+  }
+  if (u.hostname === "localhost" || u.hostname === "127.0.0.1") return true;
+  return u.protocol === "https:" && u.hostname.endsWith(".ano.dev");
 }

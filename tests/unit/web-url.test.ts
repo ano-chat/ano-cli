@@ -87,4 +87,45 @@ describe("resolveWebAppUrl", () => {
       "http://localhost:1420",
     );
   });
+
+  describe("security: rejects an untrusted server-supplied origin", () => {
+    it("ignores a non-ano https origin and derives instead (anti-phishing)", async () => {
+      const fetchImpl = vi.fn(() =>
+        Promise.resolve(jsonResponse({ webAppUrl: "https://phish.evil.com" })),
+      ) as unknown as typeof fetch;
+      // server says evil.com, but we derive app.ano.dev from the endpoint
+      expect(await resolveWebAppUrl("https://api.ano.dev", fetchImpl)).toBe(
+        "https://app.ano.dev",
+      );
+    });
+
+    it("ignores a lookalike domain (ano.dev.evil.com)", async () => {
+      const fetchImpl = vi.fn(() =>
+        Promise.resolve(
+          jsonResponse({ webAppUrl: "https://app.ano.dev.evil.com" }),
+        ),
+      ) as unknown as typeof fetch;
+      expect(await resolveWebAppUrl("https://api.ano.dev", fetchImpl)).toBe(
+        "https://app.ano.dev",
+      );
+    });
+
+    it("ignores http (non-https) ano.dev to avoid downgrade", async () => {
+      const fetchImpl = vi.fn(() =>
+        Promise.resolve(jsonResponse({ webAppUrl: "http://app.ano.dev" })),
+      ) as unknown as typeof fetch;
+      expect(await resolveWebAppUrl("https://api.ano.dev", fetchImpl)).toBe(
+        "https://app.ano.dev",
+      );
+    });
+
+    it("accepts http://localhost from the server (dev)", async () => {
+      const fetchImpl = vi.fn(() =>
+        Promise.resolve(jsonResponse({ webAppUrl: "http://localhost:1420" })),
+      ) as unknown as typeof fetch;
+      expect(await resolveWebAppUrl("http://localhost:3001", fetchImpl)).toBe(
+        "http://localhost:1420",
+      );
+    });
+  });
 });
