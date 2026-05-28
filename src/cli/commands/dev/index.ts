@@ -14,6 +14,8 @@ import { withErrorHandler } from "../../middleware/error-handler.js";
 import { resolveAuth } from "../../../core/auth.js";
 import { createApiClient } from "../../../core/api-client.js";
 import { defaultSocketPath } from "../../../daemon/protocol.js";
+import { sendTextMessageViaZero } from "../../../zero/writes.js";
+import { activeZeroOrNull } from "../../../zero/active-client.js";
 import { bold, cyan, dim, green, red } from "../../../util/colors.js";
 
 interface SmokeStep {
@@ -40,6 +42,10 @@ export function registerDev(parent: Command): void {
       "--no-write",
       "Skip the message-send step (read-only smoke against rate-limited envs)",
     )
+    .option(
+      "--expect-endpoint <url>",
+      "Fail if the resolved endpoint doesn't match (catches profile/daemon drift — e.g. user thinks they're on local but daemon is bound to staging)",
+    )
     .action(
       withErrorHandler(async (opts, cmd) => {
         const globals = cmd.optsWithGlobals() as GlobalOptions;
@@ -47,9 +53,40 @@ export function registerDev(parent: Command): void {
         const client = createApiClient(auth);
         const wantWrite = opts.write !== false;
         const overrideChannel: string | undefined = opts.channelName;
+        const expectEndpoint: string | undefined = opts.expectEndpoint;
 
         const steps: SmokeStep[] = [];
         const totalStart = performance.now();
+
+        // 0. endpoint assertion — runs first because if this fails, every
+        // other step is reporting on the wrong environment. Catches the
+        // bug class where a user runs `dev:local` but the daemon's
+        // Zero/REST is still bound to staging (the "channels list shows
+        // staging" symptom we hit in v2.25.0).
+        let endpointMismatch = false;
+        if (expectEndpoint) {
+          const normExpect = expectEndpoint.replace(/\/+$/, "");
+          const normActual = auth.endpoint.replace(/\/+$/, "");
+          const matches = normExpect === normActual;
+          steps.push({
+            name: "endpoint",
+            status: matches ? "pass" : "fail",
+            ms: 0,
+            detail: normActual,
+            error: matches
+              ? undefined
+              : `expected ${normExpect}, got ${normActual}`,
+          });
+          endpointMismatch = !matches;
+        }
+
+        // Skip the rest of the steps if endpoint check failed — every
+        // network call below would lie about the env it's actually
+        // hitting. The summary still renders with the one fail.
+        if (endpointMismatch) {
+          renderSummary(steps, totalStart, auth, globals, await probeDaemon());
+          process.exit(1);
+        }
 
         // 1. context — validates auth + workspace membership
         await time(steps, "context", async () => {
@@ -118,53 +155,86 @@ export function registerDev(parent: Command): void {
           }
         }
 
-        const totalMs = Math.round(performance.now() - totalStart);
-        const passed = steps.filter((s) => s.status === "pass").length;
-        const allGood = passed === steps.length;
-        const daemonState = await probeDaemon();
-
-        if (globals.agent || globals.json) {
-          process.stdout.write(
-            JSON.stringify(
-              {
-                ok: allGood,
-                steps,
-                total_ms: totalMs,
-                passed,
-                total: steps.length,
-                daemon: daemonState,
-                endpoint: auth.endpoint,
-              },
-              null,
-              2,
-            ) + "\n",
-          );
-        } else {
-          for (const s of steps) {
-            const mark = s.status === "pass" ? green("✓") : red("✗");
-            const tail = s.detail ? ` ${dim(s.detail)}` : "";
-            const msTxt = `${String(s.ms).padStart(4)}ms`;
-            const line = `${mark} ${s.name.padEnd(16)} ${msTxt}${tail}`;
-            process.stdout.write(line + "\n");
-            if (s.error) process.stdout.write(`    ${red(s.error)}\n`);
-          }
-          const banner = allGood
-            ? green("all green")
-            : red(`${steps.length - passed} FAILED`);
-          const dState = daemonState.running
-            ? cyan(
-                `daemon: warm (pid ${daemonState.pid}, v${daemonState.cliVersion})`,
-              )
-            : dim("daemon: cold");
-          process.stdout.write(
-            `${bold(banner)} · ${passed}/${steps.length} in ${totalMs}ms · ${dState}\n`,
-          );
-          process.stdout.write(dim(`endpoint: ${auth.endpoint}\n`));
+        // 6. Zero-mutator write path. Exercises the same code path
+        //    `ano messages send --channel <id>` would take when Zero is
+        //    connected — through `sendTextMessageViaZero` rather than
+        //    the REST `client.sendMessage`. Catches the bug class where
+        //    the mutator wire shape or the mutators registry drifts and
+        //    tests pass but real writes throw at runtime.
+        //
+        //    Skipped when daemon's Zero isn't connected (offline, env
+        //    where Zero isn't deployed, etc.) — that branch is just
+        //    confirming we don't crash, not exercising a different
+        //    code path.
+        if (wantWrite && activeZeroOrNull() && firstChannelId) {
+          const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+          const content = `dev:smoke (zero) ${stamp}`;
+          await time(steps, "messages send (zero)", async () => {
+            const r = await sendTextMessageViaZero({
+              channel_id: firstChannelId!,
+              content,
+            });
+            if (r === null) return "→ zero unavailable (fell back to REST)";
+            if (!r.ok) throw new Error(r.error);
+            return `→ ${r.id} (#${firstChannelName ?? firstChannelId})`;
+          });
         }
 
+        const daemonState = await probeDaemon();
+        renderSummary(steps, totalStart, auth, globals, daemonState);
+        const allGood = steps.every((s) => s.status === "pass");
         if (!allGood) process.exit(1);
       }),
     );
+}
+
+function renderSummary(
+  steps: SmokeStep[],
+  totalStart: number,
+  auth: { endpoint: string },
+  globals: GlobalOptions,
+  daemonState: DaemonProbe,
+): void {
+  const totalMs = Math.round(performance.now() - totalStart);
+  const passed = steps.filter((s) => s.status === "pass").length;
+  const allGood = passed === steps.length;
+
+  if (globals.agent || globals.json) {
+    process.stdout.write(
+      JSON.stringify(
+        {
+          ok: allGood,
+          steps,
+          total_ms: totalMs,
+          passed,
+          total: steps.length,
+          daemon: daemonState,
+          endpoint: auth.endpoint,
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    return;
+  }
+  for (const s of steps) {
+    const mark = s.status === "pass" ? green("✓") : red("✗");
+    const tail = s.detail ? ` ${dim(s.detail)}` : "";
+    const msTxt = `${String(s.ms).padStart(4)}ms`;
+    const line = `${mark} ${s.name.padEnd(20)} ${msTxt}${tail}`;
+    process.stdout.write(line + "\n");
+    if (s.error) process.stdout.write(`    ${red(s.error)}\n`);
+  }
+  const banner = allGood
+    ? green("all green")
+    : red(`${steps.length - passed} FAILED`);
+  const dState = daemonState.running
+    ? cyan(`daemon: warm (pid ${daemonState.pid}, v${daemonState.cliVersion})`)
+    : dim("daemon: cold");
+  process.stdout.write(
+    `${bold(banner)} · ${passed}/${steps.length} in ${totalMs}ms · ${dState}\n`,
+  );
+  process.stdout.write(dim(`endpoint: ${auth.endpoint}\n`));
 }
 
 async function time(

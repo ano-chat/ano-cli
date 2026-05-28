@@ -20,6 +20,66 @@ jobs:
       - run: npm run typecheck
       - run: npm run test
       - run: npm run build
+
+      # Real-environment gate. Runs the canonical CLI surface against
+      # staging (reads + a Zero-mutator write to a test channel)
+      # before publishing the tag. Catches: mocks-don't-match-reality
+      # bugs (mutator wire shape, registry drift), schema drift between
+      # CLI and server, and the "tests pass but runtime breaks" class
+      # that mock-based unit tests can't see. The `--expect-endpoint`
+      # flag also asserts we're actually hitting staging (not some
+      # cached profile drift).
+      #
+      # The smoke needs an `ano_usr_*` API key bound to a staging
+      # workspace. Reads the key from Doppler (project `ano`, config
+      # `stg`, secret `ANO_API_KEY_SMOKE`) using the same
+      # `DOPPLER_TOKEN_STAGING` GH secret the MIN_CLI_VERSION bump
+      # already uses below. Keeps app secrets in one place rather
+      # than splitting between Doppler and GH secrets.
+      #
+      # If `DOPPLER_TOKEN_STAGING` isn't set OR the Doppler fetch
+      # fails OR the secret doesn't exist yet, the step warns +
+      # skips so the publish isn't blocked while you're provisioning
+      # it. Once provisioned in Doppler, EVERY release goes through
+      # this gate before users see it.
+      - name: Smoke against staging
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN_STAGING }}
+        run: |
+          set -uo pipefail
+          if [[ -z "${DOPPLER_TOKEN:-}" ]]; then
+            echo "::warning::DOPPLER_TOKEN_STAGING not set — skipping staging smoke gate. Set the token to enable."
+            exit 0
+          fi
+
+          # Fetch ANO_API_KEY_SMOKE from Doppler. `value.raw` is the
+          # plain string; `value.computed` would be the resolved form
+          # (same thing for non-references).
+          SMOKE_KEY_JSON=$(curl -fsS \
+            "https://api.doppler.com/v3/configs/config/secret?project=ano&config=stg&name=ANO_API_KEY_SMOKE" \
+            -H "Authorization: Bearer ${DOPPLER_TOKEN}" 2>/dev/null || true)
+          SMOKE_KEY=$(echo "$SMOKE_KEY_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('value',{}).get('raw','')) if isinstance(d, dict) else print('')" 2>/dev/null || echo "")
+
+          if [[ -z "$SMOKE_KEY" ]]; then
+            echo "::warning::ANO_API_KEY_SMOKE not found in Doppler (project=ano, config=stg) — skipping staging smoke gate. To enable: \`doppler secrets set ANO_API_KEY_SMOKE=<ano_usr_…> --project ano --config stg\`"
+            exit 0
+          fi
+
+          set -e
+          echo "Running staging smoke (key from Doppler)..."
+          ANO_API_KEY="$SMOKE_KEY" node dist/index.js dev smoke \
+            --expect-endpoint https://api-staging.ano.dev \
+            --agent | tee /tmp/smoke.json
+          # The smoke command exits 1 on any step failure; the pipe +
+          # set -e propagates that here. Belt-and-suspenders: also
+          # assert ok=true in the JSON envelope so a future smoke
+          # regression where ok=false but exit=0 still trips.
+          if ! grep -q '"ok": true' /tmp/smoke.json; then
+            echo "::error::Smoke reported ok != true — refusing to publish."
+            exit 1
+          fi
+          echo "✓ staging smoke passed; proceeding to npm publish."
+
       - run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
