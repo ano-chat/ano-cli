@@ -22,6 +22,7 @@ import { registerIntegrations } from "./commands/integrations/index.js";
 import { registerSession } from "./commands/session/index.js";
 import { registerDaemon } from "./commands/daemon/index.js";
 import { registerDev } from "./commands/dev/index.js";
+import { registerWebUrl } from "./commands/web-url.js";
 
 export function registerAllCommands(program: Command): void {
   registerAuth(program);
@@ -47,4 +48,5 @@ export function registerAllCommands(program: Command): void {
   registerCommands(program);
   registerDaemon(program);
   registerDev(program);
+  registerWebUrl(program);
 }
