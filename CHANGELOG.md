@@ -4,6 +4,25 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.25.3] — 2026-05-28
+
+### Fixed
+
+- **`ano auth login` against production no longer fails with
+  `invalid_client`** (PR #77). The CLI mapped both
+  `api-staging.ano.dev` AND `api.ano.dev` to the staging WorkOS
+  client_id, but the apex routes to the production Worker — its
+  OAuth runs against the prod WorkOS environment which has a
+  separate client. The token exchange failed because the
+  (staging-client_id, prod-WorkOS) pair doesn't exist.
+
+  Fixed by mapping the apex AND both resolved regional endpoints
+  (`api-us.ano.dev`, `api-eu.ano.dev`) to the prod client*id
+  sourced from Doppler (`ano/prd/WORKOS_CLIENT_ID`). Staging
+  stays on its own client. Latent since the CLI shipped because
+  every prod CLI user got their `ano_usr*\*`key via the desktop's`cli-credentials-host.ts` auto-write — nobody ran the CLI
+  OAuth path against production until now.
+
 ## [2.25.2] — 2026-05-28
 
 ### Fixed
