@@ -25,6 +25,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { activeZeroOrNull } from "./active-client.js";
+import { cliMutators } from "./mutators.js";
 
 const ZERO_WRITE_TIMEOUT_MS = 5_000;
 
@@ -93,11 +94,25 @@ export async function archiveChannelViaZero(opts: {
   const handle = activeZeroOrNull();
   if (!handle) return null;
   try {
+    // Pass the mutator INVOCATION to zero.mutate(...) — per
+    // `.claude/rules/mutators.md`, calling `zero.mutate.X.method()`
+    // directly bypasses the registry and the named-mutator wire
+    // protocol (the bug surfaces as "Cannot read properties of
+    // undefined (reading 'method')" because the `.mutate` proxy is
+    // callable, not a nested object).
+    //
+    // Cast: Zero's heavily-generic Transaction<TSchema> can't unify
+    // between the third type parameter on `ZeroWithCliMutators` (any)
+    // and the inferred shape of `cliMutators.X.method(...)`. Runtime
+    // shape is correct; same escape hatch desktop uses.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mutation = (handle.zero.mutate as any).channels.update({
-      id: opts.channel_id,
-      is_archived: true,
-    });
+    const zMutate = handle.zero.mutate as unknown as (m: any) => any;
+    const mutation = zMutate(
+      cliMutators.channels.update({
+        id: opts.channel_id,
+        is_archived: true,
+      }),
+    );
     return await awaitServerWithTimeout(mutation);
   } catch (err) {
     // Synchronous throw from constructing the mutation (e.g. Zero
@@ -143,7 +158,9 @@ export async function removeChannelMemberViaZero(opts: {
       return null;
     }
     const id = rows[0].id as string;
-    const mutation = z.mutate.channel_members.delete({ id });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const zMutate = handle.zero.mutate as unknown as (m: any) => any;
+    const mutation = zMutate(cliMutators.channel_members.delete({ id }));
     return await awaitServerWithTimeout(mutation);
   } catch (err) {
     return {
@@ -178,16 +195,19 @@ export async function sendTextMessageViaZero(opts: {
     const id = randomUUID();
     const now = Date.now();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mutation = (handle.zero.mutate as any).messages.insert({
-      id,
-      channel_id: opts.channel_id,
-      user_id: handle.userId,
-      content: opts.content,
-      kind: "text",
-      is_edited: false,
-      created_at: now,
-      updated_at: now,
-    });
+    const zMutate = handle.zero.mutate as unknown as (m: any) => any;
+    const mutation = zMutate(
+      cliMutators.messages.insert({
+        id,
+        channel_id: opts.channel_id,
+        user_id: handle.userId,
+        content: opts.content,
+        kind: "text",
+        is_edited: false,
+        created_at: now,
+        updated_at: now,
+      }),
+    );
     const res = await awaitServerWithTimeout(mutation);
     if (res === null) return null;
     if (res.ok) {
