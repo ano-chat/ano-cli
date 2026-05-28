@@ -88,6 +88,42 @@ const channelsQueries = {
  * rows with `.related("user")`, filtered to active members of the
  * workspace, visible only to the requesting user.
  */
+/**
+ * Message queries.
+ *
+ * Names + shapes must match `messagesQueries` in
+ * `packages/shared/src/queries/messages.ts`.
+ */
+const messagesQueries = {
+  // Channel messages — desktop's primary read path
+  // (`messagesQueries.byChannelComposite`). Returns recent messages
+  // in a channel with sender, reactions+user, attachments, etc.
+  // joined. The CLI doesn't render most of those joins, but the
+  // server's named query is the one with the right access guard
+  // (`channelMemberGuard`), so we use it as-is.
+  byChannelComposite: defineQuery(
+    z.object({
+      channelId: z.string(),
+      limit: z.number().default(50),
+    }),
+    ({ args, ctx }) =>
+      zql.messages
+        .where("channel_id", args.channelId as string)
+        .where("thread_id", "IS", null)
+        .whereExists("channel", (cq) =>
+          cq.whereExists("members", (mq) =>
+            mq
+              .where("user_id", (ctx as { sub: string }).sub)
+              .where("removed_at", "IS", null),
+          ),
+        )
+        .orderBy("created_at", "desc")
+        .orderBy("id", "desc")
+        .limit(args.limit as number)
+        .related("sender"),
+  ),
+};
+
 const workspaceMembersQueries = {
   // Name `byWorkspace` matches `queries.workspace_members.byWorkspace`
   // in the monorepo (`packages/shared/src/queries/members.ts:25`).
@@ -104,6 +140,7 @@ const workspaceMembersQueries = {
 
 export const cliQueries = defineQueries({
   channels: channelsQueries,
+  messages: messagesQueries,
   workspace_members: workspaceMembersQueries,
 });
 

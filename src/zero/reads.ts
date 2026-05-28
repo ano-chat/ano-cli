@@ -275,15 +275,17 @@ export async function readMessagesViaZero(opts: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const z = handle.zero as any;
   try {
-    const rows = await withTimeout(
-      z.query.messages
-        .where("channel_id", "=", opts.channel_id)
-        // soft-deletes filtered at the publication level — not replicated
-        .related("author")
-        .orderBy("created_at", "desc")
-        .limit(limit)
-        .run(),
-    );
+    // Named query — server enforces `channelMemberGuard(sub)` so
+    // only channels the user belongs to materialize. Cold call
+    // ~50-200ms (server roundtrip + Postgres materialize); warm
+    // call ~0ms from the local replica. Each channel ID is its
+    // own subscription, so the first read of a new channel always
+    // pays the cold cost.
+    const queryRef = cliQueries.messages.byChannelComposite({
+      channelId: opts.channel_id,
+      limit,
+    });
+    const rows = await withTimeout(z.run(queryRef, { type: "complete" }));
     if (rows === null) return null;
     if (Array.isArray(rows) && rows.length === 0) return null;
     if (
@@ -304,8 +306,8 @@ export async function readMessagesViaZero(opts: {
       .map((r) => ({
         id: r.id,
         sender: {
-          id: r.author?.id ?? r.user_id,
-          name: r.author?.display_name ?? "unknown",
+          id: r.sender?.id ?? r.user_id,
+          name: r.sender?.display_name ?? "unknown",
         },
         content: r.content,
         timestamp: r.created_at,
@@ -372,8 +374,8 @@ export async function searchMessagesViaZero(opts: {
     const messages: Message[] = (rows as MessageRow[]).map((r) => ({
       id: r.id,
       sender: {
-        id: r.author?.id ?? r.user_id,
-        name: r.author?.display_name ?? "unknown",
+        id: r.sender?.id ?? r.user_id,
+        name: r.sender?.display_name ?? "unknown",
       },
       content: r.content,
       timestamp: r.created_at,
@@ -401,7 +403,7 @@ interface MessageRow {
   user_id: string;
   content: string;
   created_at: number;
-  author?: {
+  sender?: {
     id: string;
     display_name: string;
     email: string;

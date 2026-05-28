@@ -169,7 +169,14 @@ const channelMembersRel = relationships(channel_members, ({ one }) => ({
 }));
 
 const messagesRel = relationships(messages, ({ one }) => ({
-  author: one({
+  // Named `sender` (not `author`) to match the monorepo's relationship
+  // name in `packages/shared/src/schema/index.ts`. Named queries like
+  // `messages.byChannelComposite` use `.related("sender")` server-side;
+  // their result shape carries the joined user under `row.sender`. If
+  // we declared the relation as `author` here, materializing
+  // server-side query results into our local replica would fail to map
+  // the join correctly.
+  sender: one({
     sourceField: ["user_id"],
     destField: ["id"],
     destSchema: users,
