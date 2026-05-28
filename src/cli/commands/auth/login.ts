@@ -39,9 +39,46 @@ async function listWorkspacesForLogin(opts: {
   return await listWorkspaces(opts);
 }
 
-const DEFAULT_CLIENT_IDS: Record<string, string> = {
-  "https://api-staging.ano.dev": "client_01KG774HCH15HC3EN79E7A9BV4",
-  "https://api.ano.dev": "client_01KG774HCH15HC3EN79E7A9BV4",
+/**
+ * Default WorkOS client IDs per environment. The CLI's OAuth flow
+ * looks up the client_id for the resolved `--endpoint`; if the
+ * endpoint isn't in this map, the user must pass `--client-id`
+ * explicitly.
+ *
+ * Source of truth: Doppler.
+ *   doppler secrets get WORKOS_CLIENT_ID --plain --project ano --config stg
+ *   doppler secrets get WORKOS_CLIENT_ID --plain --project ano --config prd
+ *
+ * When WorkOS clients rotate, refresh the values below from
+ * Doppler in the same PR that bumps Doppler. (CI doesn't pull
+ * these at build — the CLI ships a static binary; values are
+ * pinned at compile time.)
+ *
+ * History: pre-v2.25.3 mapped both `api-staging.ano.dev` AND
+ * `api.ano.dev` to the staging client_id. That made
+ * `ano auth login --endpoint https://api.ano.dev` (production
+ * apex) fail at token exchange with `invalid_client` because
+ * prod WorkOS is a separate environment with its own client
+ * roster. Latent until someone tried to OAuth the CLI into prod
+ * (only ever auto-provisioned via the desktop's
+ * `cli-credentials-host.ts` before).
+ */
+const STAGING_CLIENT_ID = "client_01KG774HCH15HC3EN79E7A9BV4";
+const PROD_CLIENT_ID = "client_01KG774HNEGYXTDACJD2HFEF1A";
+
+export const DEFAULT_CLIENT_IDS: Record<string, string> = {
+  "https://api-staging.ano.dev": STAGING_CLIENT_ID,
+  // Apex routes via the CF Worker to the user's home regional
+  // endpoint (api-us.ano.dev or api-eu.ano.dev), but the OAuth
+  // dance happens on the apex itself — so the apex needs the
+  // PROD WorkOS client_id, not staging's.
+  "https://api.ano.dev": PROD_CLIENT_ID,
+  // Resolved regional endpoints share the prod WorkOS environment
+  // (same client_id across regions). Included so a user who calls
+  // `ano auth login --endpoint https://api-us.ano.dev` directly
+  // (post-region-resolution) also works.
+  "https://api-us.ano.dev": PROD_CLIENT_ID,
+  "https://api-eu.ano.dev": PROD_CLIENT_ID,
 };
 
 export function registerAuthLogin(parent: Command): void {
