@@ -16,6 +16,13 @@ export interface ResolvedAuth {
    * an extra `ano context` round-trip.
    */
   workspace_name?: string;
+  /**
+   * Workspace this credential is pinned to (`ano workspaces use` / project
+   * config). Used as the default scope for name-addressed ops so they don't
+   * silently resolve across every workspace the key can see. Undefined when
+   * the credential isn't pinned to a workspace.
+   */
+  workspace_id?: string;
 }
 
 /**

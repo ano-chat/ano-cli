@@ -63,13 +63,16 @@ beforeEach(() => {
 describe("messages send — ambiguous --channel-name guard", () => {
   it("REFUSES an unscoped --channel-name when the key spans >1 workspace", async () => {
     listWorkspacesMock.mockResolvedValue({ workspaces: TWO_WS });
+    // tests/setup.ts turns the USAGE-exit into a throw("process.exit(1)").
+    // The key assertion is that the send was PREVENTED (no wrong-tenant write).
     await expect(
       buildProgram().parseAsync(
         ["messages", "send", "--channel-name", "random", "hi"],
         { from: "user" },
       ),
-    ).rejects.toThrow(/ambiguous/i);
+    ).rejects.toThrow(/process\.exit\(1\)/);
     expect(sendMessageMock).not.toHaveBeenCalled();
+    expect(listWorkspacesMock).toHaveBeenCalledTimes(1);
   });
 
   it("PROCEEDS for a single-workspace key, scoping to that workspace", async () => {
