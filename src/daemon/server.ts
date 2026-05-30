@@ -32,11 +32,11 @@ import {
 } from "node:fs";
 import { dirname } from "node:path";
 import {
-  DEFAULT_IDLE_MS,
   PROTOCOL_VERSION,
   defaultPidPath,
   defaultSocketPath,
   frame,
+  resolveIdleMs,
   type DaemonRequest,
   type DaemonResponse,
   type ExecRequest,
@@ -480,7 +480,7 @@ export function startDaemon(opts: DaemonStartOptions = {}): {
 } {
   const socketPath = opts.socketPath ?? defaultSocketPath();
   const pidPath = opts.pidPath ?? defaultPidPath();
-  const idleMs = opts.idleMs ?? DEFAULT_IDLE_MS;
+  const idleMs = opts.idleMs ?? resolveIdleMs();
 
   // Clean up a stale socket left behind by a previous daemon that died
   // without unlinking. `EADDRINUSE` later means a live daemon is already
