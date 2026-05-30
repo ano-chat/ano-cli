@@ -70,7 +70,7 @@ describe("messages send — ambiguous --channel-name guard", () => {
         ["messages", "send", "--channel-name", "random", "hi"],
         { from: "user" },
       ),
-    ).rejects.toThrow(/process\.exit\(1\)/);
+    ).rejects.toThrow(/process\.exit unexpectedly called with "1"/);
     expect(sendMessageMock).not.toHaveBeenCalled();
     expect(listWorkspacesMock).toHaveBeenCalledTimes(1);
   });
