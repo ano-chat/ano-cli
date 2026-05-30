@@ -12,23 +12,41 @@
  * Concurrency: the server dispatches requests serially. Multiple clients
  * can connect simultaneously; their requests queue at the dispatcher.
  */
-import { homedir, tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 /** Latest protocol version. Daemon and client must agree on major. */
 export const PROTOCOL_VERSION = 1;
 
 /**
- * Resolve the per-user socket path. macOS `os.tmpdir()` returns a
- * `/var/folders/...` path that's already user-private; Linux uses
- * `XDG_RUNTIME_DIR` if set, else `${tmpdir}/ano-daemon-${uid}`.
+ * Resolve the per-user socket path. This MUST be stable across every context
+ * that invokes the CLI for a given user, or the whole "keep one warm daemon"
+ * premise collapses.
+ *
+ * Resolution order:
+ *   1. `ANO_DAEMON_SOCKET` — explicit override (tests, exotic setups).
+ *   2. `XDG_RUNTIME_DIR` (Linux) — the correct per-user runtime dir
+ *      (`/run/user/<uid>`, tmpfs, cleaned on logout). Stable, so fine.
+ *   3. `~/.cache/ano/daemon-<uid>.sock` — the home-anchored fallback.
+ *
+ * We deliberately do NOT use `os.tmpdir()` here. `os.tmpdir()` honors the
+ * `$TMPDIR` env var, which launchers routinely override: Claude Code sets
+ * `TMPDIR=/tmp/claude-<uid>`, ssh/cron/launchd get `/tmp`, and a macOS GUI
+ * login session gets `/var/folders/.../T/`. Each distinct `$TMPDIR` produced a
+ * different socket, so every context spawned its OWN daemon with its OWN Zero
+ * replica instead of sharing one warm replica — re-paying the ~370ms cold
+ * spawn + hydration ramp on every context switch, and leaking daemons. The
+ * home dir is the same regardless of `$TMPDIR`, so all of a user's contexts
+ * now converge on one socket. `~/.cache/ano` already houses the daemon log
+ * (see `defaultLogPath`), and `runDaemon` mkdir -p's the socket's parent
+ * before binding, so no new directory plumbing is needed.
  */
 export function defaultSocketPath(): string {
   if (process.env.ANO_DAEMON_SOCKET) return process.env.ANO_DAEMON_SOCKET;
   const uid = process.getuid?.() ?? 0;
   const xdgRuntime = process.env.XDG_RUNTIME_DIR;
   if (xdgRuntime) return join(xdgRuntime, "ano-daemon.sock");
-  return join(tmpdir(), `ano-daemon-${uid}.sock`);
+  return join(homedir(), ".cache", "ano", `daemon-${uid}.sock`);
 }
 
 /** PID file used by `ano daemon status` to detect a stale socket. */
@@ -41,8 +59,30 @@ export function defaultLogPath(): string {
   return join(homedir(), ".cache", "ano", "daemon.log");
 }
 
-/** Idle exit window — daemon shuts itself down after this many ms with no requests. */
-export const DEFAULT_IDLE_MS = 10 * 60 * 1000;
+/**
+ * Idle exit window — the daemon shuts itself down after this many ms with no
+ * requests, so an abandoned daemon doesn't linger forever holding ~80MB.
+ *
+ * Raised from the original 10 min to 60 min: a routine lull (a meeting, lunch,
+ * a long build) was killing the warm replica, so the next interaction re-paid
+ * the ~370ms cold spawn + hydration ramp. 60 min covers normal work gaps while
+ * still reaping a truly-abandoned daemon within the hour.
+ */
+export const DEFAULT_IDLE_MS = 60 * 60 * 1000;
+
+/**
+ * Resolve the idle-exit window, honoring `ANO_DAEMON_IDLE_MS` (milliseconds).
+ * A value of `0` disables idle exit entirely — for an always-on agent host or
+ * a launchd/systemd keep-warm unit. Unset, empty, or non-finite/negative input
+ * falls back to {@link DEFAULT_IDLE_MS}.
+ */
+export function resolveIdleMs(): number {
+  const raw = process.env.ANO_DAEMON_IDLE_MS;
+  if (raw === undefined || raw.trim() === "") return DEFAULT_IDLE_MS;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return DEFAULT_IDLE_MS;
+  return n;
+}
 
 export interface ExecRequest {
   /** Always "exec" for command dispatch. */

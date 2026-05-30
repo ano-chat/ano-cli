@@ -4,6 +4,30 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.28.0] — 2026-05-30
+
+### Fixed
+
+- **One warm daemon per user instead of one per `$TMPDIR`** (PR #89).
+  The daemon socket was derived from `os.tmpdir()`, which honors
+  `$TMPDIR`. Launchers routinely override it — Claude Code sets
+  `TMPDIR=/tmp/claude-<uid>`, ssh/cron get `/tmp`, macOS GUI sessions
+  get `/var/folders/.../T/` — so every context spawned its OWN daemon
+  with its own in-memory Zero replica instead of sharing one. Each
+  context re-paid the ~370 ms cold spawn + replica-hydration ramp on
+  every switch, and orphaned daemons piled up. The socket is now
+  anchored at `~/.cache/ano/daemon-<uid>.sock`, independent of
+  `$TMPDIR`. The `ANO_DAEMON_SOCKET` override and the Linux
+  `XDG_RUNTIME_DIR` branch are unchanged.
+
+### Changed
+
+- **Daemon idle-exit window raised 10 min → 60 min**, and made
+  configurable via `ANO_DAEMON_IDLE_MS` (milliseconds; `0` disables
+  idle exit entirely — for an always-on agent host or a launchd/systemd
+  keep-warm unit). A routine lull (a meeting, a long build) was killing
+  the warm replica and forcing the next interaction to cold-start.
+
 ## [2.25.5] — 2026-05-28
 
 ### Fixed
