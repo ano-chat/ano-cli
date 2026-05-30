@@ -445,6 +445,7 @@ interface ChannelRow {
   type: string;
   topic: string | null | undefined;
   is_private: boolean;
+  workspace_id: string | null | undefined;
 }
 
 interface MessageRow {
