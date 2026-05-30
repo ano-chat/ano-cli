@@ -1,8 +1,10 @@
 import { Command } from "commander";
 import type { GlobalOptions } from "../../types.js";
+import { ExitCode } from "../../types.js";
 import { withErrorHandler } from "../../middleware/error-handler.js";
 import { resolveAuth } from "../../../core/auth.js";
 import { createApiClient } from "../../../core/api-client.js";
+import { AnoCliError } from "../../../core/errors.js";
 import { output } from "../../../core/output.js";
 import {
   collectFileArg,
@@ -86,6 +88,36 @@ export function registerSendMessage(parent: Command): void {
 
         const auth = resolveAuth(globals);
         const client = createApiClient(auth);
+
+        // Resolve the workspace scope for a NAME-addressed send. Channel
+        // names are NOT unique across the workspaces a key can see, and the
+        // server resolves an unscoped name to the earliest-created match
+        // across ALL the user's memberships — returning ok:true after
+        // landing the message in the WRONG tenant. Precedence:
+        //   1. --workspace / ANO_WORKSPACE_ID (explicit)
+        //   2. the credential's pinned workspace (`ano workspaces use`)
+        // If neither resolves AND the key spans >1 workspace, the name is
+        // genuinely ambiguous — refuse with guidance instead of guessing.
+        // (A literal --channel <id> is globally unique, so it's exempt.)
+        let effectiveWorkspaceId = globals.workspace ?? auth.workspace_id;
+        if (opts.channelName && !opts.channel && !effectiveWorkspaceId) {
+          const { workspaces } = await client.listWorkspaces();
+          if (workspaces.length > 1) {
+            const list = workspaces
+              .map((w) => `  ${w.id}  ${w.name}`)
+              .join("\n");
+            throw new AnoCliError(
+              `--channel-name "${opts.channelName}" is ambiguous: your key can ` +
+                `see ${workspaces.length} workspaces and channel names are not ` +
+                `unique across them. Pass --workspace <id> to disambiguate:\n${list}`,
+              ExitCode.USAGE,
+            );
+          }
+          if (workspaces.length === 1) {
+            effectiveWorkspaceId = workspaces[0]!.id;
+          }
+        }
+
         const attachments =
           filePaths.length > 0
             ? await uploadAttachments(client, filePaths)
@@ -93,13 +125,7 @@ export function registerSendMessage(parent: Command): void {
         const result = await client.sendMessage({
           channel_id: opts.channel,
           channel_name: opts.channelName,
-          // Scope server-side name resolution to the intended workspace.
-          // Channel names are NOT unique across the workspaces a key can
-          // see (prod has two #general), so without this an unscoped
-          // `--channel-name` resolves the earliest-created match across
-          // ALL memberships — a wrong-tenant send. The root `--workspace`
-          // flag (globals.workspace) carries the scope; forward it.
-          workspace_id: globals.workspace,
+          workspace_id: effectiveWorkspaceId,
           content,
           thread_id: opts.thread,
           mentions: opts.mention,

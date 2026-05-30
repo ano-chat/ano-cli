@@ -16,6 +16,13 @@ export interface ResolvedAuth {
    * an extra `ano context` round-trip.
    */
   workspace_name?: string;
+  /**
+   * Workspace this credential is pinned to (`ano workspaces use` / project
+   * config). Used as the default scope for name-addressed ops so they don't
+   * silently resolve across every workspace the key can see. Undefined when
+   * the credential isn't pinned to a workspace.
+   */
+  workspace_id?: string;
 }
 
 /**
@@ -48,6 +55,7 @@ export function resolveAuth(globals: GlobalOptions): ResolvedAuth {
       key: project.key,
       endpoint: project.endpoint ?? globals.endpoint,
       source: "project",
+      workspace_id: project.workspace_id,
     };
   }
 
@@ -67,6 +75,7 @@ export function resolveAuth(globals: GlobalOptions): ResolvedAuth {
         endpoint: named.endpoint ?? globals.endpoint,
         source: "global",
         workspace_name: named.workspace_name,
+        workspace_id: named.workspace_id,
       };
     }
 
@@ -84,6 +93,7 @@ export function resolveAuth(globals: GlobalOptions): ResolvedAuth {
           endpoint: local.endpoint ?? globals.endpoint,
           source: "auto-local",
           workspace_name: local.workspace_name,
+          workspace_id: local.workspace_id,
         };
       }
     }
@@ -95,6 +105,7 @@ export function resolveAuth(globals: GlobalOptions): ResolvedAuth {
         endpoint: profile.endpoint ?? globals.endpoint,
         source: "global",
         workspace_name: profile.workspace_name,
+        workspace_id: profile.workspace_id,
       };
     }
   }
