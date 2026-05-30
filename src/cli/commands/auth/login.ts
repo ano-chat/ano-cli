@@ -109,6 +109,13 @@ export function registerAuthLogin(parent: Command): void {
       (v) => Number.parseInt(v, 10),
     )
     .option(
+      "--timeout <seconds>",
+      "How long to wait for the browser OAuth callback before giving up " +
+        "(default 300). Raise it for headless/background shells where you " +
+        "open the printed authorize URL manually.",
+      (v) => Number.parseInt(v, 10),
+    )
+    .option(
       "--print-workspaces",
       "Run OAuth, cache the access token to ~/.config/ano/.session, print " +
         "available workspaces as a single JSON line on stdout, and exit " +
@@ -166,8 +173,24 @@ export function registerAuthLogin(parent: Command): void {
           endpoint,
           clientId,
           port: opts.port,
+          // Configurable callback timeout (seconds → ms). Headless/background
+          // shells can't auto-open a browser, so the user opens the printed
+          // URL by hand — give them room with `--timeout`.
+          ...(typeof opts.timeout === "number" && opts.timeout > 0
+            ? { timeoutMs: opts.timeout * 1000 }
+            : {}),
+          // ALWAYS surface the authorize URL. In `--print-workspaces`
+          // (headless orchestrator) mode stdout must stay a single clean
+          // JSON line, so the URL goes to STDERR — otherwise a background
+          // shell where the browser never auto-opens has no way to complete
+          // the flow and just times out (the reported failure). Interactive
+          // mode keeps printing to stdout as before.
           onAuthorizeUrl: opts.printWorkspaces
-            ? undefined
+            ? (url) => {
+                process.stderr.write(
+                  `Open this URL to authorize (then return here):\n  ${url}\n`,
+                );
+              }
             : (url) => {
                 console.log(
                   `${dim("If the browser doesn't open, visit:")}\n  ${cyan(url)}`,

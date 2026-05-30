@@ -48,6 +48,7 @@ export function resolveAuth(globals: GlobalOptions): ResolvedAuth {
       key: project.key,
       endpoint: project.endpoint ?? globals.endpoint,
       source: "project",
+      workspace_id: project.workspace_id,
     };
   }
 
@@ -67,6 +68,7 @@ export function resolveAuth(globals: GlobalOptions): ResolvedAuth {
         endpoint: named.endpoint ?? globals.endpoint,
         source: "global",
         workspace_name: named.workspace_name,
+        workspace_id: named.workspace_id,
       };
     }
 
@@ -84,6 +86,7 @@ export function resolveAuth(globals: GlobalOptions): ResolvedAuth {
           endpoint: local.endpoint ?? globals.endpoint,
           source: "auto-local",
           workspace_name: local.workspace_name,
+          workspace_id: local.workspace_id,
         };
       }
     }
@@ -95,6 +98,7 @@ export function resolveAuth(globals: GlobalOptions): ResolvedAuth {
         endpoint: profile.endpoint ?? globals.endpoint,
         source: "global",
         workspace_name: profile.workspace_name,
+        workspace_id: profile.workspace_id,
       };
     }
   }
