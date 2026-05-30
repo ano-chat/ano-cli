@@ -185,6 +185,7 @@ export async function listChannelsViaZero(opts: {
         type: r.type,
         topic: r.topic ?? undefined,
         is_private: r.is_private,
+        workspace_id: r.workspace_id,
       })),
     };
   } catch {

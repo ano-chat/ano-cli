@@ -19,6 +19,12 @@ export interface Channel {
   type: string;
   topic?: string;
   is_private?: boolean;
+  /**
+   * Owning workspace. Surfaced so callers can disambiguate same-named
+   * channels across the workspaces a key can see (names are NOT unique —
+   * prod has two #general). Always present from the Zero/REST list paths.
+   */
+  workspace_id?: string;
   /** Present when `listChannels({ unread: true })` returned the row. */
   unread_count?: number;
   /** Epoch ms of the channel's most recent message; only on `unread: true`. */

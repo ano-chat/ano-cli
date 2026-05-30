@@ -52,7 +52,7 @@ export function registerListChannels(parent: Command): void {
               "last_read_at",
               "topic",
             ]
-          : ["id", "name", "type", "topic"];
+          : ["id", "name", "type", "workspace_id", "topic"];
 
         output(globals, {
           data: result.channels,
