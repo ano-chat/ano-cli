@@ -93,6 +93,13 @@ export function registerSendMessage(parent: Command): void {
         const result = await client.sendMessage({
           channel_id: opts.channel,
           channel_name: opts.channelName,
+          // Scope server-side name resolution to the intended workspace.
+          // Channel names are NOT unique across the workspaces a key can
+          // see (prod has two #general), so without this an unscoped
+          // `--channel-name` resolves the earliest-created match across
+          // ALL memberships — a wrong-tenant send. The root `--workspace`
+          // flag (globals.workspace) carries the scope; forward it.
+          workspace_id: globals.workspace,
           content,
           thread_id: opts.thread,
           mentions: opts.mention,

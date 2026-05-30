@@ -177,6 +177,7 @@ describe("zero-reads — fallback semantics", () => {
       type: "channel",
       topic: undefined,
       is_private: false,
+      workspace_id: "w1",
     });
     expect(result!.channels[1].topic).toBe("off-topic");
   });

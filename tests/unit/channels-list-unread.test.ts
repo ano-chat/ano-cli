@@ -112,7 +112,15 @@ describe("ano channels list --unread", () => {
       columns?: string[];
       title?: string;
     };
-    expect(outputArg.columns).toEqual(["id", "name", "type", "topic"]);
+    // workspace_id is surfaced so same-named channels across workspaces
+    // (names are NOT unique) are disambiguable from the single list call.
+    expect(outputArg.columns).toEqual([
+      "id",
+      "name",
+      "type",
+      "workspace_id",
+      "topic",
+    ]);
     expect(outputArg.title).toBe("Channels");
   });
 });
