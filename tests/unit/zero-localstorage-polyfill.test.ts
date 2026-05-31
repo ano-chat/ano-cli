@@ -123,4 +123,21 @@ describe("localstorage-polyfill", () => {
     expect(typeof globalThis.localStorage.getItem).toBe("function");
     expect(globalThis.localStorage.getItem("anything")).toBeNull();
   });
+
+  it("does not invoke an accessor-backed localStorage before replacing it", async () => {
+    let getterCalls = 0;
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      get() {
+        getterCalls += 1;
+        return {};
+      },
+    });
+    const { installLocalStoragePolyfill } = await import(
+      "../../src/zero/localstorage-polyfill.js?test8=" + Date.now()
+    );
+    installLocalStoragePolyfill();
+    expect(getterCalls).toBe(0);
+    expect(typeof globalThis.localStorage.getItem).toBe("function");
+  });
 });

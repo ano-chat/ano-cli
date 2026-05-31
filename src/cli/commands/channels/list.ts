@@ -18,6 +18,8 @@ export function registerListChannels(parent: Command): void {
       withErrorHandler(async (opts, cmd) => {
         const globals = cmd.optsWithGlobals() as GlobalOptions;
         const unread = opts.unread === true;
+        const auth = resolveAuth(globals);
+        const workspace_id = globals.workspace ?? auth.workspace_id;
 
         // Zero-fast-path: if the daemon has a Zero replica, serve from
         // local SQLite (microsecond reads). Falls through to REST on
@@ -30,15 +32,14 @@ export function registerListChannels(parent: Command): void {
         const zeroResult = unread
           ? null
           : await listChannelsViaZero({
-              workspace_id: globals.workspace,
+              workspace_id,
             });
         const result =
           zeroResult ??
           (await (async () => {
-            const auth = resolveAuth(globals);
             const client = createApiClient(auth);
             return await client.listChannels({
-              workspace_id: globals.workspace,
+              workspace_id,
               ...(unread ? { unread: true } : {}),
             });
           })());

@@ -46,6 +46,12 @@ beforeEach(() => {
   listChannelsMock.mockReset();
   listChannelsViaZeroMock.mockReset();
   outputMock.mockReset();
+  resolveAuthMock.mockClear();
+  resolveAuthMock.mockReturnValue({
+    key: "k",
+    endpoint: "http://x",
+    source: "flag",
+  });
   listChannelsMock.mockResolvedValue({ channels: [] });
   listChannelsViaZeroMock.mockResolvedValue(null);
 });
@@ -87,6 +93,25 @@ describe("ano channels list --unread", () => {
     await buildProgram().parseAsync(["node", "ano", "list"]);
     expect(listChannelsViaZeroMock).toHaveBeenCalledOnce();
     expect(listChannelsMock).toHaveBeenCalledOnce();
+  });
+
+  it("uses the pinned profile workspace for Zero and REST when --workspace is absent", async () => {
+    resolveAuthMock.mockReturnValue({
+      key: "k",
+      endpoint: "http://x",
+      source: "global",
+      workspace_id: "ws-profile",
+    });
+    listChannelsViaZeroMock.mockResolvedValue(null);
+
+    await buildProgram().parseAsync(["node", "ano", "list"]);
+
+    expect(listChannelsViaZeroMock).toHaveBeenCalledWith({
+      workspace_id: "ws-profile",
+    });
+    expect(listChannelsMock).toHaveBeenCalledWith({
+      workspace_id: "ws-profile",
+    });
   });
 
   it("selects the unread-shape columns when --unread is set", async () => {

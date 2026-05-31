@@ -39,16 +39,21 @@ export default defineConfig({
   onSuccess: async () => {
     // Bundle source-of-truth precedence:
     //   1. SIBLING_SKILLS_PATH env var (release pipeline can pin this)
-    //   2. ../ano-skills (dev: monorepo-adjacent checkout — always latest)
-    //   3. node_modules/@ano-chat/skills (CI / fresh clone — published)
-    // The runtime fallback chain in `setup/claude.ts:findSkillFile`
-    // mirrors this so dev runs via `tsx` also pick up latest content.
+    //   2. packages/skills (this repo's public skill package source)
+    //   3. ../ano-skills (dev: monorepo-adjacent checkout — always latest)
+    //   4. node_modules/@ano-chat/skills (published fallback)
+    // `setup/agent-skill.ts:findSkillFile` checks the bundled dist file
+    // first, then repo/package fallbacks so dev runs via `tsx` also pick
+    // up current skill content.
     const candidates: string[] = [];
     if (process.env.SIBLING_SKILLS_PATH) {
       candidates.push(
         join(process.env.SIBLING_SKILLS_PATH, "skills", "ano-cli", "SKILL.md"),
       );
     }
+    candidates.push(
+      join("packages", "skills", "skills", "ano-cli", "SKILL.md"),
+    );
     candidates.push(join("..", "ano-skills", "skills", "ano-cli", "SKILL.md"));
     try {
       const require = createRequire(import.meta.url);

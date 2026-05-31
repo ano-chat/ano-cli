@@ -105,8 +105,13 @@ const CIRCUIT_BREAKER_COOLDOWN_MS = 10 * 60 * 1000;
 // command for the full per-call response timeout (30s) and tripping
 // the circuit breaker. Must spawn its own process. Same shape as
 // `daemon serve` itself.
+//
+// `agent stdio` is also a LONG-RUNNING server. It owns stdin/stdout as
+// a protocol stream and must be hosted by the calling agent process,
+// not by the shared daemon's serial queue.
 const BYPASS_TOP_LEVEL = new Set(["daemon", "dev", "connect"]);
 const BYPASS_NESTED: Array<[string, string]> = [
+  ["agent", "stdio"],
   ["auth", "login"],
   ["auth", "complete"],
   ["auth", "refresh-region"],
@@ -115,9 +120,24 @@ const BYPASS_NESTED: Array<[string, string]> = [
 
 /** First non-flag token, plus the second non-flag token (subcommand). */
 function topAndSub(argv: string[]): [string | null, string | null] {
+  const valueFlags = new Set([
+    "--key",
+    "-k",
+    "--endpoint",
+    "-e",
+    "--workspace",
+    "-w",
+    "--profile",
+    "-p",
+  ]);
   let top: string | null = null;
   let sub: string | null = null;
-  for (const a of argv) {
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (valueFlags.has(a)) {
+      i++;
+      continue;
+    }
     if (a.startsWith("-")) continue;
     if (top === null) top = a;
     else if (sub === null) {

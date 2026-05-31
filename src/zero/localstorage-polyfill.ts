@@ -45,10 +45,16 @@ let installed = false;
 export function installLocalStoragePolyfill(): void {
   if (installed) return;
 
-  // Detect a functional localStorage. The Node experimental impl is
-  // truthy but missing methods; the Bun impl varies. Check for the
-  // methods Zero actually uses (`getItem` + `setItem`).
-  const existing = (globalThis as { localStorage?: unknown }).localStorage;
+  // Detect a functional localStorage without invoking accessor-backed
+  // runtimes. Node 25 exposes `localStorage` as a getter that emits a
+  // warning unless `--localstorage-file` is configured; reading it here
+  // would pollute every CLI command that imports Zero.
+  const descriptor = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "localStorage",
+  );
+  const existing =
+    descriptor && "value" in descriptor ? descriptor.value : undefined;
   if (
     existing &&
     typeof (existing as { getItem?: unknown }).getItem === "function" &&

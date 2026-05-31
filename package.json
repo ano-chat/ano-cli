@@ -2,6 +2,15 @@
   "name": "@ano-chat/cli",
   "version": "2.28.0",
   "description": "CLI for Ano — team communication for humans and agents",
+  "keywords": [
+    "ano",
+    "cli",
+    "team-chat",
+    "agents",
+    "claude",
+    "codex"
+  ],
+  "homepage": "https://github.com/ano-chat/ano-cli#readme",
   "type": "module",
   "bin": {
     "ano": "dist/index.js",
@@ -22,9 +31,10 @@
     "test:cache": "node tests/scripts/cache-bench.mjs",
     "lint": "prettier --check .",
     "format": "prettier --write .",
+    "skill:check": "node scripts/check-agent-skill-policy.mjs",
     "surface:update": "tsx snapshots/update-surface.ts",
     "surface:check": "tsx snapshots/update-surface.ts --check",
-    "ci": "npm run typecheck && npm run test && npm run test:keepalive && npm run test:cache && npm run build",
+    "ci": "npm run typecheck && npm run skill:check && npm run test && npm run test:keepalive && npm run test:cache && npm run build",
     "smoke:staging": "node dist/index.js dev smoke --expect-endpoint https://api-staging.ano.dev",
     "smoke:local": "node dist/index.js dev smoke --expect-endpoint http://127.0.0.1:3001 --no-write"
   },
@@ -55,5 +65,8 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/ano-chat/ano-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ano-chat/ano-cli/issues"
   }
 }

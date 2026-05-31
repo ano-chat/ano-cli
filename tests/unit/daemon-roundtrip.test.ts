@@ -133,6 +133,36 @@ describe("daemon round-trip", () => {
     expect(resp.code).toBe("version_mismatch");
   });
 
+  it("rejects long-running commands even with leading global flags", async () => {
+    const resp = await call({
+      method: "exec",
+      id: 5,
+      v: PROTOCOL_VERSION,
+      cliVersion: "",
+      argv: ["--endpoint", "https://api.example", "agent", "stdio", "--json"],
+      cwd: process.cwd(),
+      env: {},
+    });
+    expect(resp.ok).toBe(false);
+    if (resp.ok) return;
+    expect(resp.code).toBe("unknown_method");
+  });
+
+  it("rejects daemon serve because it would never return", async () => {
+    const resp = await call({
+      method: "exec",
+      id: 6,
+      v: PROTOCOL_VERSION,
+      cliVersion: "",
+      argv: ["daemon", "serve"],
+      cwd: process.cwd(),
+      env: {},
+    });
+    expect(resp.ok).toBe(false);
+    if (resp.ok) return;
+    expect(resp.code).toBe("unknown_method");
+  });
+
   it("dispatches a real command (workspaces list with no auth → exits cleanly)", async () => {
     // We don't have credentials in test, so the command will fail with
     // exit code 3 (auth). What we're locking down is that the daemon
@@ -140,17 +170,14 @@ describe("daemon round-trip", () => {
     // succeeded. The captured stderr should mention auth.
     const resp = (await call({
       method: "exec",
-      id: 5,
+      id: 8,
       v: PROTOCOL_VERSION,
-      cliVersion: "test",
+      cliVersion: "",
       argv: ["workspaces", "list", "--agent"],
       cwd: process.cwd(),
       env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" },
     })) as DaemonResponse;
-    // version mismatch on cliVersion: daemon will reject with that
-    // code AND self-shutdown. That counts as a successful round-trip
-    // for our purposes here.
-    expect(resp.ok === false || "stdout" in resp).toBe(true);
+    expect("stdout" in resp).toBe(true);
     if (resp.ok && "exitCode" in resp) {
       const r = resp as ExecResponse;
       expect(typeof r.exitCode).toBe("number");
