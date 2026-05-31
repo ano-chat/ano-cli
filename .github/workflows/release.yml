@@ -90,6 +90,18 @@ jobs:
           fi
           echo "✓ staging smoke passed; proceeding to npm publish."
 
+      - name: Publish skills package if new
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          SKILLS_VERSION=$(node -p "require('./packages/skills/package.json').version")
+          if npm view "@ano-chat/skills@${SKILLS_VERSION}" version >/dev/null 2>&1; then
+            echo "@ano-chat/skills@${SKILLS_VERSION} already published; skipping."
+          else
+            npm publish ./packages/skills --provenance --access public
+          fi
+
       - run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

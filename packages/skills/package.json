@@ -1,7 +1,7 @@
 {
   "name": "@ano-chat/skills",
-  "version": "0.3.0",
-  "description": "Claude Code skills for Ano — use the ano CLI and parse Send-to-Shell payloads",
+  "version": "0.22.0",
+  "description": "Agent skills for Ano — use the ano CLI and parse Send-to-Shell payloads",
   "license": "MIT",
   "files": [
     ".claude-plugin",

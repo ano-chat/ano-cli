@@ -4,6 +4,36 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.29.0] — 2026-05-31
+
+### Added
+
+- **Agent stdio transport and startup context** (PR #90). Agents can now keep
+  one `ano agent stdio` process alive and execute machine-readable CLI commands
+  over newline-delimited JSON. `ano agent context` fetches the common startup
+  bundle in one request so agents can cache workspace, channel, user, and table
+  IDs instead of spending extra list roundtrips.
+
+- **Codex and Hermes setup paths**. `ano setup codex` installs the Ano skill for
+  Codex, and `ano setup hermes` generates bridge instructions for Hermes Agent
+  without adding duplicate runtime bridge flags.
+
+### Changed
+
+- **Packaged Ano skill now enforces the fastest agent route**. The skill tells
+  Claude Code, Codex, and other agents to prefer `ano agent stdio`, fetch
+  `agent context` once, cache IDs, and avoid pre-listing channels/users before
+  send-by-name commands. CI now runs `npm run skill:check` so this guidance
+  cannot silently regress.
+
+### Fixed
+
+- **Long-running commands are rejected from daemon/stdio dispatch**. The daemon
+  and stdio protocol now reject recursive `agent stdio`, `daemon serve`, and
+  bridge-hosted commands even when leading global flags carry values. Stdio also
+  rejects commands that would emit styled human output instead of `--agent`,
+  `--json`, or `--quiet`.
+
 ## [2.28.0] — 2026-05-30
 
 ### Fixed
