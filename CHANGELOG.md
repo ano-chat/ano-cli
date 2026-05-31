@@ -4,6 +4,29 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.30.0] — 2026-05-31
+
+### Added
+
+- **Read and send to a channel by name in one call.** `ano messages read
+<name>` now accepts a channel name (positional, `--channel-name <name>`, or
+  `--channel <id-or-name>`) and resolves it through the warm Zero replica with a
+  process-level name→id cache. Agents no longer need a separate `channels list`
+  lookup before reading a channel.
+- **`ano agent routes`** prints the fastest single-roundtrip command for each
+  common agent task (read, send, search, DM, startup context) as
+  machine-readable JSON.
+
+### Changed
+
+- **`ano messages search` fails fast to REST.** The Zero-backed search now uses
+  a 100 ms timeout before falling back to the REST API, so cold-replica
+  materialization latency is no longer visible to agents.
+- **Packaged Ano skill teaches direct channel routes.** `SKILL.md` now directs
+  agents to read/send by channel name instead of fetching `agent context`
+  first, and to scope startup context with `agent context --no-tables`.
+  `skill:check` enforces the updated policy.
+
 ## [2.29.0] — 2026-05-31
 
 ### Added
