@@ -5,31 +5,38 @@ import { resolveAuth } from "../../../core/auth.js";
 import { createApiClient } from "../../../core/api-client.js";
 import { output } from "../../../core/output.js";
 import { readMessagesViaZero } from "../../../zero/reads.js";
+import { parseSingleChannelRef, resolveChannelId } from "./channel-target.js";
 
 export function registerReadMessages(parent: Command): void {
   parent
     .command("read")
     .description("Read messages from a channel")
-    .requiredOption("-c, --channel <id>", "Channel ID")
+    .argument("[target]", "Channel ID, #channel, or channel name")
+    .option("-c, --channel <id-or-name>", "Channel ID or name")
+    .option("-n, --channel-name <name>", "Channel name")
     .option("-l, --limit <n>", "Number of messages (1-100)", "25")
     .action(
-      withErrorHandler(async (opts, cmd) => {
+      withErrorHandler(async (target, opts, cmd) => {
         const globals = cmd.optsWithGlobals() as GlobalOptions;
         const limit = parseInt(opts.limit, 10);
+        const ref = parseSingleChannelRef({ target, ...opts });
+        const auth = resolveAuth(globals);
+        const client = createApiClient(auth);
+        const channelId = await resolveChannelId({
+          ref,
+          workspaceId: globals.workspace ?? auth.workspace_id,
+          client,
+        });
         const zeroResult = await readMessagesViaZero({
-          channel_id: opts.channel,
+          channel_id: channelId,
           limit,
         });
         const result =
           zeroResult ??
-          (await (async () => {
-            const auth = resolveAuth(globals);
-            const client = createApiClient(auth);
-            return await client.readMessages({
-              channel_id: opts.channel,
-              limit,
-            });
-          })());
+          (await client.readMessages({
+            channel_id: channelId,
+            limit,
+          }));
 
         const messages = result.messages.map((m) => ({
           ...m,
@@ -39,11 +46,14 @@ export function registerReadMessages(parent: Command): void {
         output(globals, {
           data: messages,
           columns: ["sender", "content", "timestamp"],
-          title: `Messages in ${opts.channel}`,
+          title: `Messages in ${ref.kind === "name" ? `#${ref.value}` : channelId}`,
           breadcrumbs: [
             {
               action: "send_message",
-              cmd: `ano messages send --channel ${opts.channel} "..."`,
+              cmd:
+                ref.kind === "name"
+                  ? `ano messages send "..." --channel-name ${ref.value}`
+                  : `ano messages send --channel ${channelId} "..."`,
               description: "Reply to this channel",
             },
             {

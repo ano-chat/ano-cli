@@ -92,7 +92,10 @@ function validateRowShape(
  * already fired. Without this, a slow + eventually-failing Zero query
  * crashes the daemon under Node's strict unhandled-rejection mode.
  */
-async function withTimeout<T>(p: Promise<T>): Promise<T | null> {
+async function withTimeout<T>(
+  p: Promise<T>,
+  timeoutMs = ZERO_READ_TIMEOUT_MS,
+): Promise<T | null> {
   // Swallow eventual rejection even if we've already returned null
   // from the race. Resolves to `null` on reject so the race outcome
   // is consistent ("timed out OR query errored → null").
@@ -102,7 +105,7 @@ async function withTimeout<T>(p: Promise<T>): Promise<T | null> {
   );
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<null>((resolve) => {
-    timer = setTimeout(() => resolve(null), ZERO_READ_TIMEOUT_MS);
+    timer = setTimeout(() => resolve(null), timeoutMs);
   });
   try {
     return await Promise.race([safe, timeout]);
@@ -346,6 +349,7 @@ export async function searchMessagesViaZero(opts: {
   query: string;
   workspace_id?: string;
   limit?: number;
+  timeout_ms?: number;
 }): Promise<{ messages: Message[] } | null> {
   const handle = activeZeroOrNull();
   if (!handle) return null;
@@ -375,8 +379,11 @@ export async function searchMessagesViaZero(opts: {
     const messagesQueryRef = cliQueries.messages.recentByUserMemberships(10000);
     const usersQueryRef = cliQueries.users.byWorkspacesOfUser();
     const [allRows, userRows] = (await Promise.all([
-      withTimeout(z.run(messagesQueryRef, { type: "complete" })),
-      withTimeout(z.run(usersQueryRef, { type: "complete" })),
+      withTimeout(
+        z.run(messagesQueryRef, { type: "complete" }),
+        opts.timeout_ms,
+      ),
+      withTimeout(z.run(usersQueryRef, { type: "complete" }), opts.timeout_ms),
     ])) as [Record<string, unknown>[] | null, Record<string, unknown>[] | null];
     if (allRows === null) return null;
     if (Array.isArray(allRows) && allRows.length === 0) return null;

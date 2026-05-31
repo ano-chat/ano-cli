@@ -22,17 +22,15 @@ export function registerSearchMessages(parent: Command): void {
           query,
           workspace_id,
           limit,
+          timeout_ms: 100,
         });
         const result =
           zeroResult ??
-          (await (async () => {
-            const client = createApiClient(auth);
-            return await client.searchMessages({
-              query,
-              workspace_id,
-              limit,
-            });
-          })());
+          (await createApiClient(auth).searchMessages({
+            query,
+            workspace_id,
+            limit,
+          }));
 
         const messages = result.messages.map((m) => ({
           ...m,

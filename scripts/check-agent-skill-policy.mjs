@@ -20,8 +20,12 @@ const required = [
     /## Fastest Agent Policy[\s\S]*Preferred transport:[\s\S]*ano agent stdio/,
   ],
   [
-    "context-first policy",
-    /First request:[\s\S]*agent context -w <workspace-id> --json/,
+    "direct channel read policy",
+    /Use direct task commands first[\s\S]*messages read <channel-name>/,
+  ],
+  [
+    "bounded context policy",
+    /Fetch startup context only when broad context is needed[\s\S]*agent context --no-tables --json/,
   ],
   [
     "machine-output stdio enforcement",
@@ -33,7 +37,7 @@ const required = [
   ],
   [
     "server-side named channel send",
-    /messages send "text" --channel-name general -w <workspace-id> --agent/,
+    /messages send "text" --channel-name general --agent/,
   ],
   ["server-side DM send", /dm send "text" --to "Name" --agent/],
 ];

@@ -58,15 +58,19 @@ manage agent integrations.
 Use this order for every agent integration:
 
 1. **Preferred transport:** start `ano agent stdio` once per task/session.
-2. **First request:** run `agent context -w <workspace-id> --json` through that
-   stdio process and cache the returned workspace, channel, user, and table IDs.
-3. **Normal actions:** send later commands as stdio `exec` frames with cached IDs
+2. **Use direct task commands first.** For common channel actions, call
+   `messages read <channel-name> ...` or
+   `messages send "text" --channel-name <channel-name> ...` directly. Do not
+   fetch broad context just to resolve a channel name.
+3. **Fetch startup context only when broad context is needed.** Run
+   `agent context --no-tables --json` once, then cache IDs.
+4. **Normal actions:** send later commands as stdio `exec` frames with cached IDs
    and `--agent` or `--json` output.
-4. **Fallback:** use one-shot `ano ... --agent` only when the host cannot keep a
+5. **Fallback:** use one-shot `ano ... --agent` only when the host cannot keep a
    child process alive.
-5. **Backup only:** the daemon accelerates one-shot CLI calls; do not depend on
+6. **Backup only:** the daemon accelerates one-shot CLI calls; do not depend on
    it when stdio is available.
-6. **MCP:** use MCP only when the host requires MCP. It is not the fastest path
+7. **MCP:** use MCP only when the host requires MCP. It is not the fastest path
    unless that MCP server keeps an equivalent local warm process.
 
 `agent stdio` enforces machine-readable exec output. Every `exec.argv` must
@@ -79,8 +83,9 @@ roundtrip.
 
 | Workflow                                 | Budget | Required pattern                                       |
 | ---------------------------------------- | ------ | ------------------------------------------------------ |
-| Startup context                          | 1      | `agent context -w <workspace-id> --json`               |
-| Send to named channel                    | 1      | `messages send ... --channel-name <name> -w <ws>`      |
+| Read named channel                       | 1      | `messages read general --limit <n> --agent`            |
+| Send to named channel                    | 1      | `messages send "text" --channel-name random --agent`   |
+| Startup context                          | 1      | `agent context --no-tables --json`                     |
 | Send DM by display name                  | 1      | `dm send ... --to "Name" --agent`                      |
 | Read known channel                       | 1      | `messages read --channel <id> --agent`                 |
 | Read known channel, then reply           | 2      | read by cached ID, then send by cached ID              |
@@ -91,6 +96,7 @@ roundtrip.
 Avoidable extra roundtrips:
 
 - Do not run `channels list` before `messages send --channel-name ...`.
+- Do not run `agent context` before `messages read <channel-name> ...`.
 - Do not run `users list` before `dm send --to ...`.
 - Do not run separate `channels list` + `users list` + `tables list` at task
   start; use `agent context`.
@@ -102,11 +108,13 @@ Avoidable extra roundtrips:
    new `ano` process per action unless stdio is unavailable.
 2. **Always use `--agent` or `--json` output.** Never parse styled TTY output.
    Use `--agent` for raw JSON; `--json` for envelope with breadcrumbs.
-3. **Fetch startup context once.** Prefer
-   `ano agent context -w <workspace-id> --json` as the first exec/request. Cache
-   the workspace, channel, user, and table IDs from that response.
-4. **Do not pre-list just to send by name.** For channels, use
-   `ano messages send "text" --channel-name general -w <workspace-id> --agent`.
+3. **Do not pre-list just to read or send by channel name.** Use
+   `ano messages read general --limit 10 --agent` or
+   `ano messages send "text" --channel-name general --agent`.
+4. **Fetch startup context only when the task needs broad workspace context.**
+   Prefer `ano agent context --no-tables --json`; add tables only when working
+   with tables. Cache the workspace, channel, user, and table IDs from that
+   response.
    For DMs, use `ano dm send "text" --to "Name" --agent`. List only when the
    command returns ambiguity or when you need to inspect available options.
 5. **Never fabricate IDs.** Channel/user/message IDs are UUIDs. Source them from
@@ -359,8 +367,9 @@ OAuth and key minting.
 
 ```
 Need to find something?
-├── Start of task? → ano agent context -w <workspace-id> --json
-├── Know the channel from cached context? → ano messages read --channel <id> --agent
+├── Channel name known? → ano messages read general --limit 25 --agent
+├── Channel ID known? → ano messages read --channel <id> --agent
+├── Need broad workspace context? → ano agent context --no-tables --json
 ├── Need to search? → ano messages search "query" --agent
 ├── Cached channels stale? → ano channels list --agent
 ├── Cached users stale? → ano users list --agent
@@ -415,10 +424,9 @@ Need structured data (lists, databases, rows)?
 ### Read a channel and reply
 
 ```bash
-# Start once per task; cache CHANNEL_ID from this response.
-context=$(ano agent context -w "$WORKSPACE_ID" --json)
-messages=$(ano messages read --channel "$CHANNEL_ID" --limit 20 --agent)
-ano messages send "Here's my analysis..." --channel "$CHANNEL_ID" --agent
+# If you know the channel name, skip startup context.
+messages=$(ano messages read general --limit 20 --agent)
+ano messages send "Here's my analysis..." --channel-name general --agent
 ```
 
 ### Search, then reply in thread
