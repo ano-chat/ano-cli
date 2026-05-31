@@ -13,7 +13,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/LeoNilsson/ano-cli.git",
+    "url": "https://github.com/ano-chat/ano-cli.git",
     "directory": "packages/skills"
   }
 }

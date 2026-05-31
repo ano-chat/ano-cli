@@ -1,12 +1,14 @@
 import { Command } from "commander";
-import { registerSetupClaude } from "./claude.js";
-import { registerSetupOpenClaw } from "./openclaw.js";
+import { registerSetupAgentSkill } from "./agent-skill.js";
+import { registerSetupHermes, registerSetupOpenClaw } from "./openclaw.js";
 
 export function registerSetup(parent: Command): void {
   const group = new Command("setup").description(
     "Set up integrations with AI agents",
   );
-  registerSetupClaude(group);
+  registerSetupAgentSkill(group, "claude");
+  registerSetupAgentSkill(group, "codex");
   registerSetupOpenClaw(group);
+  registerSetupHermes(group);
   parent.addCommand(group);
 }

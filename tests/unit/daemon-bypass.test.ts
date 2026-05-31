@@ -48,6 +48,15 @@ describe("shouldBypass", () => {
     expect(shouldBypass(["dev", "smoke", "--agent"])).toBe(true);
   });
 
+  it("bypasses agent stdio because it is a long-running protocol server", () => {
+    delete process.env.ANO_NO_DAEMON;
+    expect(shouldBypass(["agent", "stdio"])).toBe(true);
+    expect(shouldBypass(["--json", "agent", "stdio"])).toBe(true);
+    expect(
+      shouldBypass(["--endpoint", "https://api.example", "agent", "stdio"]),
+    ).toBe(true);
+  });
+
   it("bypasses interactive auth flows", () => {
     delete process.env.ANO_NO_DAEMON;
     expect(shouldBypass(["auth", "login"])).toBe(true);

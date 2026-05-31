@@ -16,19 +16,20 @@ export function registerSearchMessages(parent: Command): void {
       withErrorHandler(async (query, opts, cmd) => {
         const globals = cmd.optsWithGlobals() as GlobalOptions;
         const limit = parseInt(opts.limit, 10);
+        const auth = resolveAuth(globals);
+        const workspace_id = globals.workspace ?? auth.workspace_id;
         const zeroResult = await searchMessagesViaZero({
           query,
-          workspace_id: globals.workspace,
+          workspace_id,
           limit,
         });
         const result =
           zeroResult ??
           (await (async () => {
-            const auth = resolveAuth(globals);
             const client = createApiClient(auth);
             return await client.searchMessages({
               query,
-              workspace_id: globals.workspace,
+              workspace_id,
               limit,
             });
           })());

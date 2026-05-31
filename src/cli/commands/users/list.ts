@@ -13,16 +13,17 @@ export function registerListUsers(parent: Command): void {
     .action(
       withErrorHandler(async (_opts, cmd) => {
         const globals = cmd.optsWithGlobals() as GlobalOptions;
+        const auth = resolveAuth(globals);
+        const workspace_id = globals.workspace ?? auth.workspace_id;
         const zeroResult = await listUsersViaZero({
-          workspace_id: globals.workspace,
+          workspace_id,
         });
         const result =
           zeroResult ??
           (await (async () => {
-            const auth = resolveAuth(globals);
             const client = createApiClient(auth);
             return await client.listUsers({
-              workspace_id: globals.workspace,
+              workspace_id,
             });
           })());
 

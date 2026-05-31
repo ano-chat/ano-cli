@@ -604,6 +604,22 @@ export function createApiClient(auth: ResolvedAuth): AnoApiClient {
   const { key, endpoint } = auth;
 
   const authHeader = { Authorization: `Bearer ${key}` };
+  const defaultWorkspaceId = auth.workspace_id;
+
+  function withDefaultWorkspace<T extends { workspace_id?: string }>(
+    opts?: T,
+  ): T {
+    const body = (opts ?? {}) as T;
+    if (body.workspace_id || !defaultWorkspaceId) return body;
+    return { ...body, workspace_id: defaultWorkspaceId };
+  }
+
+  function workspaceParam(opts?: {
+    workspace_id?: string;
+  }): { workspace_id: string } | undefined {
+    const workspaceId = opts?.workspace_id || defaultWorkspaceId;
+    return workspaceId ? { workspace_id: workspaceId } : undefined;
+  }
 
   async function post<T>(
     path: string,
@@ -692,36 +708,42 @@ export function createApiClient(auth: ResolvedAuth): AnoApiClient {
   }
 
   return {
-    context: (opts) =>
-      get(
-        "/context",
-        opts?.workspace_id ? { workspace_id: opts.workspace_id } : undefined,
-      ),
+    context: (opts) => get("/context", workspaceParam(opts)),
     listWorkspaces: () => post("/list_workspaces", {}),
-    listChannels: (opts) => post("/list_channels", opts ?? {}),
-    listUsers: (opts) => post("/list_users", opts ?? {}),
+    listChannels: (opts) => post("/list_channels", withDefaultWorkspace(opts)),
+    listUsers: (opts) => post("/list_users", withDefaultWorkspace(opts)),
     readMessages: (opts) => post("/read_messages", opts),
-    searchMessages: (opts) => post("/search_messages", opts),
-    sendMessage: (opts) => post("/send_message", opts),
-    sendDm: (opts) => post("/send_dm", opts),
+    searchMessages: (opts) =>
+      post("/search_messages", withDefaultWorkspace(opts)),
+    sendMessage: (opts) => post("/send_message", withDefaultWorkspace(opts)),
+    sendDm: (opts) => post("/send_dm", withDefaultWorkspace(opts)),
     typing: (opts) => post("/typing", opts),
-    listTables: (opts) => post("/list_tables", opts ?? {}),
+    listTables: (opts) => post("/list_tables", withDefaultWorkspace(opts)),
     getTable: (opts) => post("/get_table", opts),
     queryTableItems: (opts) => post("/query_table_items", opts),
-    createTable: (opts) => post("/create_table", opts),
+    createTable: (opts) => post("/create_table", withDefaultWorkspace(opts)),
     createTableItem: (opts) => post("/create_table_item", opts),
     updateTableItem: (opts) => post("/update_table_item", opts),
     addTableItemComment: (opts) => post("/add_table_item_comment", opts),
-    agentSessionStart: (opts) => post("/agent_session_start", opts),
+    agentSessionStart: (opts) =>
+      post("/agent_session_start", withDefaultWorkspace(opts)),
     agentSessionUpdate: (opts) => post("/agent_session_update", opts),
     agentSessionEnd: (opts) => post("/agent_session_end", opts),
 
-    automationCompile: (opts) => post("/automation_compile", opts),
+    automationCompile: (opts) =>
+      post("/automation_compile", withDefaultWorkspace(opts)),
     automationCreateCompiled: (opts) =>
-      post("/automation_create_compiled", opts as Record<string, unknown>),
+      post(
+        "/automation_create_compiled",
+        withDefaultWorkspace(opts) as Record<string, unknown>,
+      ),
     automationCreateFromText: (opts) =>
-      post("/automation_create_from_text", opts as Record<string, unknown>),
-    automationList: (opts) => post("/automation_list", opts),
+      post(
+        "/automation_create_from_text",
+        withDefaultWorkspace(opts) as Record<string, unknown>,
+      ),
+    automationList: (opts) =>
+      post("/automation_list", withDefaultWorkspace(opts)),
     automationRuns: (opts) => post("/automation_runs", opts),
     automationRun: (opts) =>
       post("/automation_run", opts as Record<string, unknown>),
@@ -732,24 +754,47 @@ export function createApiClient(auth: ResolvedAuth): AnoApiClient {
       post("/automation_update", opts as Record<string, unknown>),
     automationWebhookSetup: (opts) => post("/automation_webhook_setup", opts),
     automationValidate: (opts) =>
-      post("/automation_validate", opts as Record<string, unknown>),
-    webhookTest: (opts) => post("/webhook_test", opts),
+      post(
+        "/automation_validate",
+        withDefaultWorkspace(opts) as Record<string, unknown>,
+      ),
+    webhookTest: (opts) => post("/webhook_test", withDefaultWorkspace(opts)),
     coworkerCreate: (opts) =>
-      post("/coworker_create", opts as Record<string, unknown>),
+      post(
+        "/coworker_create",
+        withDefaultWorkspace(opts) as Record<string, unknown>,
+      ),
     coworkerUpdate: (opts) =>
-      post("/coworker_update", opts as Record<string, unknown>),
+      post(
+        "/coworker_update",
+        withDefaultWorkspace(opts) as Record<string, unknown>,
+      ),
     channelCreate: (opts) =>
-      post("/channel_create", opts as Record<string, unknown>),
-    inviteUser: (opts) => post("/invite_user", opts as Record<string, unknown>),
-    channelArchive: (opts) => post("/channel_archive", opts),
-    channelMemberAdd: (opts) => post("/channel_member_add", opts),
-    channelMemberRemove: (opts) => post("/channel_member_remove", opts),
+      post(
+        "/channel_create",
+        withDefaultWorkspace(opts) as Record<string, unknown>,
+      ),
+    inviteUser: (opts) =>
+      post(
+        "/invite_user",
+        withDefaultWorkspace(opts) as Record<string, unknown>,
+      ),
+    channelArchive: (opts) =>
+      post("/channel_archive", withDefaultWorkspace(opts)),
+    channelMemberAdd: (opts) =>
+      post("/channel_member_add", withDefaultWorkspace(opts)),
+    channelMemberRemove: (opts) =>
+      post("/channel_member_remove", withDefaultWorkspace(opts)),
     workspaceMemberAdd: (opts) => post("/workspace_member_add", opts),
     workspaceMemberRemove: (opts) => post("/workspace_member_remove", opts),
     dndSet: (opts) => post("/dnd_set", opts as Record<string, unknown>),
     notificationPreferencesSet: (opts) =>
-      post("/notification_preferences_set", opts as Record<string, unknown>),
-    requestConnection: (opts) => post("/request_connection", opts),
+      post(
+        "/notification_preferences_set",
+        withDefaultWorkspace(opts) as Record<string, unknown>,
+      ),
+    requestConnection: (opts) =>
+      post("/request_connection", withDefaultWorkspace(opts)),
     upload: (opts) => uploadFile(opts),
   };
 }

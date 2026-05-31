@@ -53,27 +53,78 @@ CLI for Ano team communication. Read/send messages, list channels and members,
 read and write tables, search conversations, stream real-time events, and
 manage agent integrations.
 
+## Fastest Agent Policy
+
+Use this order for every agent integration:
+
+1. **Preferred transport:** start `ano agent stdio` once per task/session.
+2. **First request:** run `agent context -w <workspace-id> --json` through that
+   stdio process and cache the returned workspace, channel, user, and table IDs.
+3. **Normal actions:** send later commands as stdio `exec` frames with cached IDs
+   and `--agent` or `--json` output.
+4. **Fallback:** use one-shot `ano ... --agent` only when the host cannot keep a
+   child process alive.
+5. **Backup only:** the daemon accelerates one-shot CLI calls; do not depend on
+   it when stdio is available.
+6. **MCP:** use MCP only when the host requires MCP. It is not the fastest path
+   unless that MCP server keeps an equivalent local warm process.
+
+`agent stdio` enforces machine-readable exec output. Every `exec.argv` must
+include `--agent`, `--json`, or `--quiet`.
+
+## Roundtrip Budgets
+
+Count one stdio `exec` frame, or one fallback `ano ...` process, as one agent
+roundtrip.
+
+| Workflow                                 | Budget | Required pattern                                       |
+| ---------------------------------------- | ------ | ------------------------------------------------------ |
+| Startup context                          | 1      | `agent context -w <workspace-id> --json`               |
+| Send to named channel                    | 1      | `messages send ... --channel-name <name> -w <ws>`      |
+| Send DM by display name                  | 1      | `dm send ... --to "Name" --agent`                      |
+| Read known channel                       | 1      | `messages read --channel <id> --agent`                 |
+| Read known channel, then reply           | 2      | read by cached ID, then send by cached ID              |
+| Search, inspect channel, then reply      | 3      | search, read returned channel ID, reply in thread      |
+| Create or update table item              | 2      | `tables get <id>`, then create/update with field IDs   |
+| Refresh stale channel/user/table options | 1      | targeted list only when cached context is insufficient |
+
+Avoidable extra roundtrips:
+
+- Do not run `channels list` before `messages send --channel-name ...`.
+- Do not run `users list` before `dm send --to ...`.
+- Do not run separate `channels list` + `users list` + `tables list` at task
+  start; use `agent context`.
+
 ## Agent Invariants
 
-1. **Always use `--agent` or `--json` output.** Never parse styled TTY output.
+1. **If the host can keep a child process alive, start `ano agent stdio` once
+   and keep it for the task.** Send commands as `exec` frames. Do not spawn a
+   new `ano` process per action unless stdio is unavailable.
+2. **Always use `--agent` or `--json` output.** Never parse styled TTY output.
    Use `--agent` for raw JSON; `--json` for envelope with breadcrumbs.
-2. **Never fabricate IDs.** Channel/user/message IDs are UUIDs. Get them from
-   `ano channels list --agent` or `ano users list --agent` first.
-3. **Resolve by name before acting.** "Post in #general" → list channels, find
-   the ID, then send. "DM Leo" → list users, find the ID, then send.
-4. **Respect rate limits.** 60 requests/minute. Exit code 5 = rate limited.
+3. **Fetch startup context once.** Prefer
+   `ano agent context -w <workspace-id> --json` as the first exec/request. Cache
+   the workspace, channel, user, and table IDs from that response.
+4. **Do not pre-list just to send by name.** For channels, use
+   `ano messages send "text" --channel-name general -w <workspace-id> --agent`.
+   For DMs, use `ano dm send "text" --to "Name" --agent`. List only when the
+   command returns ambiguity or when you need to inspect available options.
+5. **Never fabricate IDs.** Channel/user/message IDs are UUIDs. Source them from
+   `agent context` first, then from targeted list/read/search commands only when
+   the cached context is missing or stale.
+6. **Respect rate limits.** 60 requests/minute. Exit code 5 = rate limited.
    Wait 10+ seconds before retrying.
-5. **Check exit codes.** Non-zero = failure. Parse the error envelope.
-6. **Never expose API keys.** Don't log or include `ano_cwk_*` or `ano_usr_*` keys in output.
-7. **Content supports markdown.** Bold, links, code blocks, lists all work.
-8. **Reply in threads** to keep channels clean. Use `--thread <message_id>`.
-9. **Follow breadcrumbs.** JSON responses include suggested next commands.
-10. **Run `ano doctor`** before escalating connectivity issues.
-11. **Fetch a table's schema before writing to it.** `ano tables get <table-id> --agent`
+7. **Check exit codes.** Non-zero = failure. Parse the error envelope.
+8. **Never expose API keys.** Don't log or include `ano_cwk_*` or `ano_usr_*` keys in output.
+9. **Content supports markdown.** Bold, links, code blocks, lists all work.
+10. **Reply in threads** to keep channels clean. Use `--thread <message_id>`.
+11. **Follow breadcrumbs.** JSON responses include suggested next commands.
+12. **Run `ano doctor`** before escalating connectivity issues.
+13. **Fetch a table's schema before writing to it.** `ano tables get <table-id> --agent`
     returns the field-definition IDs. `create-item` / `update-item` require the
     `--fields` JSON to be keyed by field-definition ID, not by the human-readable
     field name.
-12. **On exit code 3 (AUTH), run the Triggered Auth flow before surfacing the error.**
+14. **On exit code 3 (AUTH), run the Triggered Auth flow before surfacing the error.**
     Don't dump "run `ano auth login`" on the user as a manual step — orchestrate it
     inline using `--print-workspaces` + `auth complete`. See "Triggered Auth" below.
 
@@ -143,6 +194,7 @@ ano commands --json                 # Full command catalog
 | Check auth                              | `ano auth status --agent`                                             |
 | Remove credentials                      | `ano auth logout`                                                     |
 | **Read**                                |                                                                       |
+| Agent startup context                   | `ano agent context -w <workspace-id> --json`                          |
 | List channels                           | `ano channels list --agent`                                           |
 | List users                              | `ano users list --agent`                                              |
 | List workspaces                         | `ano workspaces list --agent`                                         |
@@ -179,7 +231,32 @@ ano commands --json                 # Full command catalog
 | Full diagnostics                        | `ano doctor --agent`                                                  |
 | Command catalog                         | `ano commands --json`                                                 |
 | Setup Claude                            | `ano setup claude`                                                    |
+| Setup Codex                             | `ano setup codex`                                                     |
 | Setup OpenClaw                          | `ano setup openclaw`                                                  |
+| Setup Hermes Agent                      | `ano setup hermes`                                                    |
+
+## Stdio Agent Sessions
+
+Start `ano agent stdio` once when the host can keep a child process alive. Then
+run `agent context -w <workspace-id> --json` as the first exec request. Cache
+the channel/user/table IDs from that response for the rest of the turn instead
+of re-listing.
+
+Send newline-delimited JSON requests:
+
+```json
+{
+  "id": 1,
+  "v": 1,
+  "method": "exec",
+  "argv": ["agent", "context", "-w", "<workspace-id>", "--json"]
+}
+```
+
+The response includes the command's `stdout`, `stderr`, `exitCode`, and
+`dispatchMs`. Every `exec.argv` must include `--agent`, `--json`, or `--quiet`;
+stdio rejects styled human output. Do not run commands that read stdin
+(`--file -`) through stdio; stdin is the protocol stream.
 
 ## Triggered Auth (when CLI is unauthenticated)
 
@@ -282,10 +359,11 @@ OAuth and key minting.
 
 ```
 Need to find something?
-├── Know the channel? → ano messages read --channel <id> --agent
+├── Start of task? → ano agent context -w <workspace-id> --json
+├── Know the channel from cached context? → ano messages read --channel <id> --agent
 ├── Need to search? → ano messages search "query" --agent
-├── Which channels exist? → ano channels list --agent
-├── Who's in the workspace? → ano users list --agent
+├── Cached channels stale? → ano channels list --agent
+├── Cached users stale? → ano users list --agent
 ├── Have a URL? → ano show <url> --agent
 └── Multiple workspaces? → ano workspaces list --agent
 ```
@@ -294,7 +372,8 @@ Need to find something?
 
 ```
 Want to send something?
-├── To a channel → ano messages send "text" --channel <id> --agent
+├── Known channel ID → ano messages send "text" --channel <id> --agent
+├── Channel name only → ano messages send "text" --channel-name <name> -w <workspace-id> --agent
 ├── Reply in thread → add --thread <msg_id>
 ├── With @mention → add --mention <user_id>
 └── DM someone → ano dm send "text" --to "Name" --agent
@@ -327,6 +406,7 @@ Need structured data (lists, databases, rows)?
 ├── One-off commands → use ano messages/channels/users directly
 ├── Persistent bridge → ano connect install-service
 ├── OpenClaw agent → ano connect --openclaw <url>
+├── Hermes Agent → ano setup hermes
 └── Diagnose issues → ano doctor --agent
 ```
 
@@ -335,8 +415,8 @@ Need structured data (lists, databases, rows)?
 ### Read a channel and reply
 
 ```bash
-channels=$(ano channels list --agent)
-# Parse to find channel ID for "general"
+# Start once per task; cache CHANNEL_ID from this response.
+context=$(ano agent context -w "$WORKSPACE_ID" --json)
 messages=$(ano messages read --channel "$CHANNEL_ID" --limit 20 --agent)
 ano messages send "Here's my analysis..." --channel "$CHANNEL_ID" --agent
 ```
@@ -350,11 +430,9 @@ ano messages read --channel "$CHANNEL_ID" --limit 50 --agent
 ano messages send "Fix applied" --channel "$CHANNEL_ID" --thread "$MSG_ID" --agent
 ```
 
-### DM with user lookup
+### DM by name
 
 ```bash
-users=$(ano users list --agent)
-# Find user ID for "Jane"
 ano dm send "Can you review PR #42?" --to "Jane" --agent
 ```
 
@@ -472,5 +550,5 @@ Agent mode (`--openclaw`) auto-responds to DMs, thread replies, and @mentions.
 
 ## Learn More
 
-- CLI repo: https://github.com/LeoNilsson/ano-cli
+- CLI repo: https://github.com/ano-chat/ano-cli
 - Ano: https://ano.dev

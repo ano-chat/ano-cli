@@ -76,7 +76,7 @@ class ExitSentinel extends Error {
   }
 }
 
-interface DispatchResult {
+export interface DispatchResult {
   stdout: string;
   stderr: string;
   exitCode: number;
@@ -86,7 +86,7 @@ interface DispatchResult {
  * Run one client request inside a fresh commander program. State is
  * restored before returning, so the next request sees a clean process.
  */
-async function dispatch(req: ExecRequest): Promise<DispatchResult> {
+export async function dispatchCli(req: ExecRequest): Promise<DispatchResult> {
   const stdoutBuf: string[] = [];
   const stderrBuf: string[] = [];
   const origStdoutWrite = process.stdout.write.bind(process.stdout);
@@ -252,6 +252,11 @@ async function prewarmDefaultEndpoint(): Promise<void> {
   await prewarmConnection(endpoint);
 }
 
+export function prewarmDaemonRuntime(): void {
+  void prewarmDefaultEndpoint();
+  bootstrapZero().catch(() => {});
+}
+
 /**
  * Pump a single client connection: read newline-delimited frames,
  * dispatch each, write response. Closes when the client disconnects or
@@ -338,8 +343,12 @@ function attachConnection(socket: Socket, ctx: ServerContext): void {
         // first line of defense, but external callers (the bridge,
         // `npm exec ano-connect`, third-party scripts) can speak our
         // socket protocol directly — so the daemon must self-defend.
-        const top = req.argv?.[0];
-        if (top === "connect") {
+        const [top, sub] = topAndSub(req.argv ?? []);
+        if (
+          top === "connect" ||
+          (top === "agent" && sub === "stdio") ||
+          (top === "daemon" && sub === "serve")
+        ) {
           // Use `unknown_method` (not `internal`) so the client falls
           // back to direct execution WITHOUT tripping its circuit
           // breaker — the daemon is correctly declining a command
@@ -347,8 +356,7 @@ function attachConnection(socket: Socket, ctx: ServerContext): void {
           reply({
             id: req.id,
             ok: false,
-            error:
-              "Daemon does not host long-running 'connect' — spawn it as its own process.",
+            error: `Daemon does not host long-running '${formatCommandName(top, sub)}' — spawn it as its own process.`,
             code: "unknown_method",
           });
           continue;
@@ -429,6 +437,39 @@ function attachConnection(socket: Socket, ctx: ServerContext): void {
   });
 }
 
+function topAndSub(argv: string[]): [string | null, string | null] {
+  const valueFlags = new Set([
+    "--key",
+    "-k",
+    "--endpoint",
+    "-e",
+    "--workspace",
+    "-w",
+    "--profile",
+    "-p",
+  ]);
+  let top: string | null = null;
+  let sub: string | null = null;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (valueFlags.has(arg)) {
+      i++;
+      continue;
+    }
+    if (arg.startsWith("-")) continue;
+    if (top === null) top = arg;
+    else if (sub === null) {
+      sub = arg;
+      break;
+    }
+  }
+  return [top, sub];
+}
+
+function formatCommandName(top: string | null, sub: string | null): string {
+  return sub ? `${top} ${sub}` : String(top);
+}
+
 interface ServerContext {
   server: Server;
   startedAt: number;
@@ -499,7 +540,7 @@ export function startDaemon(opts: DaemonStartOptions = {}): {
     startedAt: Date.now(),
     queue: Promise.resolve(),
     dispatchTimeoutMs: opts.dispatchTimeoutMs ?? DISPATCH_TIMEOUT_MS,
-    dispatchFn: opts._dispatchOverride ?? dispatch,
+    dispatchFn: opts._dispatchOverride ?? dispatchCli,
     bumpIdle: () => {},
     shutdown: () => {},
   };
@@ -560,14 +601,7 @@ export function startDaemon(opts: DaemonStartOptions = {}): {
     // handshake latency. ~200–300 ms saving against prod-regional
     // (transatlantic to Hetzner); ~50 ms staging; negligible local.
     // Skipped in tests where prewarm would just be noise.
-    if (!opts.skipPrewarm) {
-      void prewarmDefaultEndpoint();
-      // Belt + suspenders: bootstrapZero() has try/catches around
-      // every external call, but attach a swallow here too so an
-      // unanticipated throw doesn't surface as an unhandled
-      // rejection that crashes the daemon.
-      bootstrapZero().catch(() => {});
-    }
+    if (!opts.skipPrewarm) prewarmDaemonRuntime();
   });
   ctx.server.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE") {

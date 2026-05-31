@@ -186,6 +186,7 @@ export interface DaemonError {
     | "unknown_method"
     | "internal"
     | "shutdown_acked"
+    | "machine_output_required"
     | "stdin_unsupported";
 }
 
