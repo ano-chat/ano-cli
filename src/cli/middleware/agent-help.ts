@@ -26,9 +26,7 @@ export function handleAgentHelp(program: Command): void {
     cmd = sub;
   }
 
-  process.stdout.write(
-    JSON.stringify(extractCommandMeta(cmd), null, 2) + "\n",
-  );
+  process.stdout.write(JSON.stringify(extractCommandMeta(cmd), null, 2) + "\n");
   process.exit(0);
 }
 
@@ -50,10 +48,7 @@ function extractCommandMeta(cmd: Command): CommandMeta {
       .filter((o) => o.long !== "--help" && o.long !== "--version")
       .map(
         (o): FlagMeta => ({
-          name:
-            o.long?.replace(/^--/, "") ??
-            o.short?.replace(/^-/, "") ??
-            "",
+          name: o.long?.replace(/^--/, "") ?? o.short?.replace(/^-/, "") ?? "",
           short: o.short?.replace(/^-/, ""),
           description: o.description,
           required: o.required,

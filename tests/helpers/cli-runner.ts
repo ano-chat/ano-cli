@@ -23,7 +23,7 @@ export function runCli(
             ? typeof error.code === "number"
               ? error.code
               : 1
-            : child.exitCode ?? 0,
+            : (child.exitCode ?? 0),
         });
       },
     );

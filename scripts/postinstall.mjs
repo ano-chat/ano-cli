@@ -81,9 +81,7 @@ if (!assetName) {
 // ── load version from our own package.json ─────────────────────────
 let version;
 try {
-  const pkg = JSON.parse(
-    readFileSync(join(PKG_ROOT, "package.json"), "utf8"),
-  );
+  const pkg = JSON.parse(readFileSync(join(PKG_ROOT, "package.json"), "utf8"));
   version = pkg.version;
 } catch (err) {
   // Can't determine version → can't pick the right release → bail.
@@ -284,11 +282,10 @@ function killExistingDaemon() {
     // various prefixes; the "daemon serve" suffix is the stable part.
     // Filter to processes owned by the current user via `-u $UID`.
     const uid = String(process.getuid?.() ?? 0);
-    const out = execFileSync(
-      "pgrep",
-      ["-u", uid, "-f", "ano daemon serve"],
-      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-    );
+    const out = execFileSync("pgrep", ["-u", uid, "-f", "ano daemon serve"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
     const pids = out
       .trim()
       .split("\n")

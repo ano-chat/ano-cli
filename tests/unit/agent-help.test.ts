@@ -10,9 +10,7 @@ import { handleAgentHelp } from "../../src/cli/middleware/agent-help.js";
 function buildTestProgram(): Command {
   const program = new Command("ano").description("Ano CLI");
 
-  const channels = program
-    .command("channels")
-    .description("Manage channels");
+  const channels = program.command("channels").description("Manage channels");
 
   channels
     .command("list")
@@ -110,9 +108,7 @@ describe("handleAgentHelp", () => {
     expect(meta.description).toBe("Manage channels");
     const subs = meta.subcommands as Array<{ name: string; path: string }>;
     expect(subs.some((s) => s.name === "list")).toBe(true);
-    expect(subs.find((s) => s.name === "list")!.path).toBe(
-      "ano channels list",
-    );
+    expect(subs.find((s) => s.name === "list")!.path).toBe("ano channels list");
   });
 
   it("calls process.exit(0)", () => {

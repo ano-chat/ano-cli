@@ -14,8 +14,7 @@ export function parseAnoUrl(url: string): ParsedAnoUrl | null {
     const parts = u.pathname.split("/").filter(Boolean);
 
     if (parts.length === 0) return null;
-    if (parts.length === 1)
-      return { type: "workspace", workspace: parts[0] };
+    if (parts.length === 1) return { type: "workspace", workspace: parts[0] };
     if (parts.length === 2)
       return {
         type: "channel",

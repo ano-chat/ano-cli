@@ -102,9 +102,7 @@ function printChecks(globals: GlobalOptions, checks: CheckResult[]) {
       console.log(`  ${icons[c.status]} ${c.name}: ${dim(c.message)}`);
     }
     console.log(
-      failed
-        ? `\n${red("Issues found.")}`
-        : `\n${green("All checks passed.")}`,
+      failed ? `\n${red("Issues found.")}` : `\n${green("All checks passed.")}`,
     );
   }
 

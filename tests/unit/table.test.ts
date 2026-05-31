@@ -59,10 +59,11 @@ describe("renderTable", () => {
 
   it("converts non-string values to strings", () => {
     const rows = [{ count: 42, active: true, empty: null }];
-    const result = renderTable(
-      rows as unknown as Record<string, unknown>[],
-      ["count", "active", "empty"],
-    );
+    const result = renderTable(rows as unknown as Record<string, unknown>[], [
+      "count",
+      "active",
+      "empty",
+    ]);
     expect(result).toContain("42");
     expect(result).toContain("true");
     // null should become empty string

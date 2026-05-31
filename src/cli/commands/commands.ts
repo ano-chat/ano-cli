@@ -26,10 +26,7 @@ export function registerCommands(parent: Command): void {
     });
 }
 
-function walkCommands(
-  cmd: Command,
-  prefix: string[] = [],
-): CommandMeta[] {
+function walkCommands(cmd: Command, prefix: string[] = []): CommandMeta[] {
   const result: CommandMeta[] = [];
   const path = cmd.parent ? [...prefix, cmd.name()] : prefix;
 
@@ -38,7 +35,8 @@ function walkCommands(
     // Skip the auto-generated "help" command
     if (sub.name() === "help") continue;
 
-    const hasSubcommands = sub.commands.filter((c) => c.name() !== "help").length > 0;
+    const hasSubcommands =
+      sub.commands.filter((c) => c.name() !== "help").length > 0;
 
     if (hasSubcommands) {
       result.push(...walkCommands(sub, path));
@@ -55,9 +53,7 @@ function walkCommands(
         flags: sub.options.map(
           (o): FlagMeta => ({
             name:
-              o.long?.replace(/^--/, "") ??
-              o.short?.replace(/^-/, "") ??
-              "",
+              o.long?.replace(/^--/, "") ?? o.short?.replace(/^-/, "") ?? "",
             short: o.short?.replace(/^-/, ""),
             description: o.description,
             required: o.required,

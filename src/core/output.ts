@@ -76,10 +76,8 @@ function outputMarkdown<T>(
 
   if (Array.isArray(payload.data) && payload.columns) {
     process.stdout.write(
-      renderTable(
-        payload.data as Record<string, unknown>[],
-        payload.columns,
-      ) + "\n",
+      renderTable(payload.data as Record<string, unknown>[], payload.columns) +
+        "\n",
     );
   } else {
     process.stdout.write(JSON.stringify(payload.data, null, 2) + "\n");
@@ -103,20 +101,15 @@ function outputRaw<T>(data: T) {
   }
 }
 
-function outputStyled<T>(
-  payload: OutputPayload<T>,
-  breadcrumbs: Breadcrumb[],
-) {
+function outputStyled<T>(payload: OutputPayload<T>, breadcrumbs: Breadcrumb[]) {
   if (payload.title) {
     process.stdout.write(`${bold(payload.title)}\n\n`);
   }
 
   if (Array.isArray(payload.data) && payload.columns) {
     process.stdout.write(
-      renderTable(
-        payload.data as Record<string, unknown>[],
-        payload.columns,
-      ) + "\n",
+      renderTable(payload.data as Record<string, unknown>[], payload.columns) +
+        "\n",
     );
   } else {
     process.stdout.write(JSON.stringify(payload.data, null, 2) + "\n");

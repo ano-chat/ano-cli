@@ -21,9 +21,7 @@ describe("parseAnoUrl", () => {
     });
 
     it("parses message URL", () => {
-      const result = parseAnoUrl(
-        "https://ano.dev/my-team/general/msg-123",
-      );
+      const result = parseAnoUrl("https://ano.dev/my-team/general/msg-123");
       expect(result).toEqual({
         type: "message",
         workspace: "my-team",
@@ -41,9 +39,7 @@ describe("parseAnoUrl", () => {
     });
 
     it("handles subdomain channel URL", () => {
-      const result = parseAnoUrl(
-        "https://app.ano.dev/workspace1/engineering",
-      );
+      const result = parseAnoUrl("https://app.ano.dev/workspace1/engineering");
       expect(result).toEqual({
         type: "channel",
         workspace: "workspace1",
@@ -69,9 +65,7 @@ describe("parseAnoUrl", () => {
     });
 
     it("handles message URLs with extra path segments", () => {
-      const result = parseAnoUrl(
-        "https://ano.dev/ws/ch/msg-id/extra",
-      );
+      const result = parseAnoUrl("https://ano.dev/ws/ch/msg-id/extra");
       expect(result).not.toBeNull();
       expect(result!.type).toBe("message");
       expect(result!.workspace).toBe("ws");

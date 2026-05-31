@@ -58,7 +58,11 @@ export function registerMyCommand(parent: Command): void {
           columns: ["col1", "col2"],
           title: "Title",
           breadcrumbs: [
-            { action: "next", cmd: "ano next-cmd", description: "What to do next" },
+            {
+              action: "next",
+              cmd: "ano next-cmd",
+              description: "What to do next",
+            },
           ],
         });
       }),

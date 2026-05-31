@@ -31,8 +31,7 @@ export function registerConnect(parent: Command): void {
         endpoint,
         webhookUrl: opts.webhook,
         webhookSecret: opts.webhookSecret,
-        controlPort:
-          opts.controlPort ?? (opts.webhook ? 0 : undefined),
+        controlPort: opts.controlPort ?? (opts.webhook ? 0 : undefined),
         healthPort: opts.healthPort,
         openclawUrl: opts.openclaw?.replace(/\/+$/, ""),
         openclawToken: opts.openclawToken,
@@ -61,9 +60,7 @@ export function registerConnect(parent: Command): void {
         process.exit(3);
       }
 
-      const { installService } = await import(
-        "../../../bridge/service.js"
-      );
+      const { installService } = await import("../../../bridge/service.js");
       await installService({
         key,
         endpoint: globals.endpoint.replace(/\/+$/, ""),
@@ -86,9 +83,7 @@ export function registerConnect(parent: Command): void {
       "Workspace name or 12-char hash (auto-detected if only one service exists)",
     )
     .action(async (opts) => {
-      const { uninstallService } = await import(
-        "../../../bridge/service.js"
-      );
+      const { uninstallService } = await import("../../../bridge/service.js");
 
       let target = opts.serviceName;
       if (!target) {
@@ -105,7 +100,9 @@ export function registerConnect(parent: Command): void {
               const m = f.match(/^dev\.ano\.connect\.([a-f0-9]{12})\.plist$/);
               if (m) services.push(m[1]);
             }
-          } catch { /* dir may not exist */ }
+          } catch {
+            /* dir may not exist */
+          }
         } else if (platform === "linux") {
           const unitDir = join(home, ".config", "systemd", "user");
           try {
@@ -114,7 +111,9 @@ export function registerConnect(parent: Command): void {
               const m = f.match(/^ano-connect-([a-f0-9]{12})\.service$/);
               if (m) services.push(m[1]);
             }
-          } catch { /* dir may not exist */ }
+          } catch {
+            /* dir may not exist */
+          }
         }
 
         if (services.length === 0) {
@@ -124,7 +123,9 @@ export function registerConnect(parent: Command): void {
           target = services[0];
           console.error(`Auto-detected service: ${target}`);
         } else {
-          console.error("Multiple services found. Specify one with --service-name:");
+          console.error(
+            "Multiple services found. Specify one with --service-name:",
+          );
           for (const s of services) {
             console.error(`  ${s}`);
           }

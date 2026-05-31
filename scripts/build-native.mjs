@@ -77,7 +77,9 @@ if (!bun) {
 
 const version = getVersion();
 console.log(`Building native binaries for @ano-chat/cli@${version}`);
-console.log(`Using ${bun} (${execFileSync(bun, ["--version"], { encoding: "utf8" }).trim()})\n`);
+console.log(
+  `Using ${bun} (${execFileSync(bun, ["--version"], { encoding: "utf8" }).trim()})\n`,
+);
 
 mkdirSync(OUT, { recursive: true });
 
@@ -117,11 +119,14 @@ for (const { target, filename } of TARGETS) {
 // per line. Released alongside the binaries so users can verify their
 // download.
 const sumsPath = join(OUT, "SHA256SUMS");
-const sumsBody = results.map((r) => `${r.hash}  ${r.filename}`).join("\n") + "\n";
+const sumsBody =
+  results.map((r) => `${r.hash}  ${r.filename}`).join("\n") + "\n";
 writeFileSync(sumsPath, sumsBody);
 console.log(`  ✓ SHA256SUMS\n`);
 
 console.log("Done. Artifacts in dist-native/:");
 for (const r of results) {
-  console.log(`  ${r.filename.padEnd(24)} ${fmtSize(r.size).padStart(8)}  sha256:${r.hash.slice(0, 12)}…`);
+  console.log(
+    `  ${r.filename.padEnd(24)} ${fmtSize(r.size).padStart(8)}  sha256:${r.hash.slice(0, 12)}…`,
+  );
 }

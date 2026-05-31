@@ -2,7 +2,13 @@
   "name": "skill-ano",
   "version": "1.0.0",
   "description": "Connect AI agents to Ano workspaces",
-  "keywords": ["ano", "workspace", "chat", "integration", "agent"],
+  "keywords": [
+    "ano",
+    "workspace",
+    "chat",
+    "integration",
+    "agent"
+  ],
   "openclaw": {
     "skill": true,
     "triggers": [

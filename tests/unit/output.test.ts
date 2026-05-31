@@ -165,7 +165,12 @@ describe("output() default (styled)", () => {
 
 describe("outputError()", () => {
   it("in --json mode writes structured error to stdout", () => {
-    outputError(globals({ json: true }), "bad request", ExitCode.USAGE, "fix it");
+    outputError(
+      globals({ json: true }),
+      "bad request",
+      ExitCode.USAGE,
+      "fix it",
+    );
     const raw = stdoutChunks.join("");
     const obj = JSON.parse(raw);
     expect(obj.ok).toBe(false);
@@ -201,7 +206,12 @@ describe("outputError()", () => {
   });
 
   it("in default mode writes to stderr", () => {
-    outputError(globals(), "something failed", ExitCode.API_ERROR, "check logs");
+    outputError(
+      globals(),
+      "something failed",
+      ExitCode.API_ERROR,
+      "check logs",
+    );
     expect(stderrChunks.join("")).toContain("something failed");
     expect(stderrChunks.join("")).toContain("check logs");
     // stdout should be empty

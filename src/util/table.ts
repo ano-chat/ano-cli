@@ -6,15 +6,10 @@ export function renderTable(
   if (rows.length === 0) return "(empty)";
 
   const widths = columns.map((col) =>
-    Math.max(
-      col.length,
-      ...rows.map((r) => String(r[col] ?? "").length),
-    ),
+    Math.max(col.length, ...rows.map((r) => String(r[col] ?? "").length)),
   );
 
-  const header = columns
-    .map((col, i) => col.padEnd(widths[i]))
-    .join(" | ");
+  const header = columns.map((col, i) => col.padEnd(widths[i])).join(" | ");
   const separator = widths.map((w) => "-".repeat(w)).join(" | ");
   const body = rows
     .map((row) =>

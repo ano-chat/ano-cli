@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { looksLikeSlug, resolveSlugOrId, slugFromId } from "../../src/util/slug.js";
+import {
+  looksLikeSlug,
+  resolveSlugOrId,
+  slugFromId,
+} from "../../src/util/slug.js";
 
 describe("slugFromId", () => {
   it("produces the same slug for the same id (deterministic)", () => {
