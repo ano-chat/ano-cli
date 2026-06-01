@@ -42,6 +42,8 @@ import { createHash } from "node:crypto";
 const READ_ALLOWLIST = new Set<string>([
   "/list_workspaces",
   "/list_channels",
+  "/list_dms",
+  "/resolve_dm",
   "/list_users",
   "/list_tables",
   "/get_table",

@@ -347,6 +347,8 @@ function isAllowedRead(url: string): boolean {
 const ALLOWED_READS = new Set<string>([
   "/list_workspaces",
   "/list_channels",
+  "/list_dms",
+  "/resolve_dm",
   "/list_users",
   "/list_tables",
   "/get_table",

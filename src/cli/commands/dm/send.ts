@@ -7,30 +7,15 @@ import {
   type SendDmResult,
   type SendGroupDmResult,
 } from "../../../core/api-client.js";
+import { AnoCliError } from "../../../core/errors.js";
 import { output } from "../../../core/output.js";
+import { ExitCode } from "../../types.js";
+import { parseDmRecipients, toDmRequest } from "./recipients.js";
 import {
   collectFileArg,
   resolveFiles,
   uploadAttachments,
 } from "../../file-attachments.js";
-
-/**
- * Normalise repeated `--to` values + comma-separated forms into a clean
- * deduped name list. `--to "Alice" --to "Bob"`, `--to "Alice,Bob"`,
- * and `--to Alice Bob` all become `["Alice", "Bob"]`.
- */
-function normalizeRecipients(raw: unknown): string[] {
-  const list = Array.isArray(raw) ? raw : raw == null ? [] : [raw];
-  const out: string[] = [];
-  for (const entry of list) {
-    if (typeof entry !== "string") continue;
-    for (const piece of entry.split(",")) {
-      const trimmed = piece.trim();
-      if (trimmed && !out.includes(trimmed)) out.push(trimmed);
-    }
-  }
-  return out;
-}
 
 export function registerSendDm(parent: Command): void {
   parent
@@ -57,28 +42,17 @@ export function registerSendDm(parent: Command): void {
         const auth = resolveAuth(globals);
         const client = createApiClient(auth);
 
-        const names = normalizeRecipients(opts.to);
-        const ids = normalizeRecipients(opts.userId);
-        const totalRecipients =
-          names.length + ids.length + (opts.email ? 1 : 0);
-
-        if (totalRecipients === 0) {
-          throw new Error(
-            "At least one of --to, --user-id, or --email is required.",
-          );
-        }
-
-        const isGroup = totalRecipients > 1;
-        if (isGroup && opts.email) {
-          throw new Error(
-            "--email is only supported for 1:1 DMs. For group DMs, use --to or --user-id.",
-          );
-        }
+        const recipients = parseDmRecipients({
+          to: opts.to,
+          email: opts.email,
+          userId: opts.userId,
+        });
 
         const filePaths = resolveFiles(opts.file);
         if (content.trim().length === 0 && filePaths.length === 0) {
-          throw new Error(
+          throw new AnoCliError(
             "Empty content requires at least one --file attachment.",
+            ExitCode.USAGE,
           );
         }
         const attachments =
@@ -86,24 +60,14 @@ export function registerSendDm(parent: Command): void {
             ? await uploadAttachments(client, filePaths)
             : undefined;
 
-        const result = isGroup
-          ? await client.sendDm({
-              recipient_names: names,
-              user_ids: ids,
-              content,
-              workspace_id: globals.workspace,
-              attachments,
-            })
-          : await client.sendDm({
-              recipient_name: names[0],
-              recipient_email: opts.email,
-              user_id: ids[0],
-              content,
-              workspace_id: globals.workspace,
-              attachments,
-            });
+        const result = await client.sendDm({
+          ...toDmRequest(recipients),
+          content,
+          workspace_id: globals.workspace,
+          attachments,
+        });
 
-        const title = isGroup
+        const title = recipients.isGroup
           ? `DM sent to ${(result as SendGroupDmResult).recipients.join(", ")}`
           : `DM sent to ${(result as SendDmResult).recipient}`;
 

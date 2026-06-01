@@ -40,6 +40,7 @@ const required = [
     /messages send "text" --channel-name general --agent/,
   ],
   ["server-side DM send", /dm send "text" --to "Name" --agent/],
+  ["read-only DM read", /dm read "Name" --agent/],
 ];
 
 const forbidden = [

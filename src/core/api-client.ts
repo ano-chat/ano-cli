@@ -97,6 +97,22 @@ export interface SendGroupDmResult {
   attachment_ids?: string[];
 }
 
+export interface DmParticipant {
+  id: string;
+  display_name: string;
+  email: string | null;
+  avatar_url: string | null;
+}
+
+export interface DmConversation {
+  channel_id: string;
+  channel_type: "dm" | "group_dm";
+  participant_names: string[];
+  participants: DmParticipant[];
+  last_message_at: string | null;
+  unread_count?: number;
+}
+
 /**
  * Response of `POST /mcp/upload`. Mirrors `uploadSuccessSchema` in
  * `@ano/shared/api/upload`; the CLI passes the row back verbatim on
@@ -187,6 +203,18 @@ export interface AnoApiClient {
     channel_id: string;
     limit?: number;
   }): Promise<{ messages: Message[] }>;
+  listDms(opts?: {
+    workspace_id?: string;
+    limit?: number;
+  }): Promise<{ dms: DmConversation[] }>;
+  resolveDm(opts: {
+    recipient_name?: string;
+    recipient_email?: string;
+    user_id?: string;
+    recipient_names?: string[];
+    user_ids?: string[];
+    workspace_id?: string;
+  }): Promise<{ channel: DmConversation }>;
   searchMessages(opts: {
     query: string;
     workspace_id?: string;
@@ -711,8 +739,10 @@ export function createApiClient(auth: ResolvedAuth): AnoApiClient {
     context: (opts) => get("/context", workspaceParam(opts)),
     listWorkspaces: () => post("/list_workspaces", {}),
     listChannels: (opts) => post("/list_channels", withDefaultWorkspace(opts)),
+    listDms: (opts) => post("/list_dms", withDefaultWorkspace(opts)),
     listUsers: (opts) => post("/list_users", withDefaultWorkspace(opts)),
     readMessages: (opts) => post("/read_messages", opts),
+    resolveDm: (opts) => post("/resolve_dm", withDefaultWorkspace(opts)),
     searchMessages: (opts) =>
       post("/search_messages", withDefaultWorkspace(opts)),
     sendMessage: (opts) => post("/send_message", withDefaultWorkspace(opts)),
