@@ -131,6 +131,7 @@ jobs:
             -H "Authorization: Bearer ${DOPPLER_TOKEN}" \
             -H "Content-Type: application/json" \
             -d "{\"project\":\"ano\",\"config\":\"stg\",\"secrets\":{\"MIN_CLI_VERSION\":\"${VERSION}\"}}" \
+            -o /dev/null \
             || {
               echo "::warning::Doppler bump failed — set MIN_CLI_VERSION manually:"
               echo "::warning::  doppler secrets set MIN_CLI_VERSION=$VERSION --project ano --config stg"
@@ -158,6 +159,7 @@ jobs:
             -H "Authorization: Bearer ${DOPPLER_TOKEN}" \
             -H "Content-Type: application/json" \
             -d "{\"project\":\"ano\",\"config\":\"prd\",\"secrets\":{\"MIN_CLI_VERSION\":\"${VERSION}\"}}" \
+            -o /dev/null \
             || {
               echo "::warning::Doppler prod bump failed — set MIN_CLI_VERSION manually:"
               echo "::warning::  doppler secrets set MIN_CLI_VERSION=$VERSION --project ano --config prd"
