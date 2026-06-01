@@ -84,6 +84,8 @@ ano messages search "staging error"
 ano messages send "Deploy is live" --channel <channel-id>
 
 # Direct messages
+ano dm list
+ano dm read "Jane"
 ano dm send "Can you review this?" --to "Jane"
 
 # Tables
@@ -138,9 +140,9 @@ Use:
 - `--json` for an envelope with `ok`, `data`, `breadcrumbs`, and `meta`.
 - `--md` for GitHub-flavored Markdown tables.
 
-Do not list channels or users just to send by name. Use
+Do not list channels or users just to read or send by name. Use
 `messages send --channel-name <name> -w <workspace-id> --agent` or
-`dm send --to "Name" --agent`.
+`dm read "Name" --agent` / `dm send --to "Name" --agent`.
 
 See [Agent Performance](docs/agent-performance.md) for the protocol shape and
 integration guidance.

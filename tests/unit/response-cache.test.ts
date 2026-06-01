@@ -61,6 +61,35 @@ describe("response-cache core", () => {
     expect(hit?.status).toBe(200);
   });
 
+  it("treats DM list and read-only DM resolution as cacheable reads", () => {
+    cacheSet("https://api.example/mcp/list_dms", "Bearer abc", "{}", {
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: '{"dms":[]}',
+    });
+    cacheSet(
+      "https://api.example/mcp/resolve_dm",
+      "Bearer abc",
+      '{"recipient_name":"Alice"}',
+      {
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: '{"channel":{"channel_id":"ch-dm"}}',
+      },
+    );
+
+    expect(
+      cacheGet("https://api.example/mcp/list_dms", "Bearer abc", "{}")?.body,
+    ).toBe('{"dms":[]}');
+    expect(
+      cacheGet(
+        "https://api.example/mcp/resolve_dm",
+        "Bearer abc",
+        '{"recipient_name":"Alice"}',
+      )?.body,
+    ).toContain("ch-dm");
+  });
+
   it("refuses to cache non-200 responses", () => {
     const url = "https://api.example/mcp/list_channels";
     cacheSet(url, "Bearer abc", "{}", {

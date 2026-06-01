@@ -284,6 +284,7 @@ export async function listUsersViaZero(opts: {
 export async function readMessagesViaZero(opts: {
   channel_id: string;
   limit?: number;
+  timeout_ms?: number;
 }): Promise<{ messages: Message[] } | null> {
   const handle = activeZeroOrNull();
   if (!handle) return null;
@@ -303,7 +304,10 @@ export async function readMessagesViaZero(opts: {
       channelId: opts.channel_id,
       limit,
     });
-    const rows = await withTimeout(z.run(queryRef, { type: "complete" }));
+    const rows = await withTimeout(
+      z.run(queryRef, { type: "complete" }),
+      opts.timeout_ms,
+    );
     if (rows === null) return null;
     if (Array.isArray(rows) && rows.length === 0) return null;
     if (

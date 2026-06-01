@@ -33,6 +33,12 @@ const routes = [
     budget: 1,
     command: 'dm send "<text>" --to "<display-name>" --agent',
   },
+  {
+    task: "read_dm",
+    budget: 1,
+    command: 'dm read "<display-name>" --limit <n> --agent',
+    note: "Read-only: exits 2 if the DM conversation does not exist.",
+  },
 ] as const;
 
 export function registerAgentRoutes(parent: Command): void {

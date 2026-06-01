@@ -5,6 +5,11 @@
     "args": []
   },
   {
+    "command": "agent routes",
+    "flags": [],
+    "args": []
+  },
+  {
     "command": "agent stdio",
     "flags": [],
     "args": []
@@ -242,6 +247,16 @@
     "args": []
   },
   {
+    "command": "dm list",
+    "flags": ["--limit"],
+    "args": []
+  },
+  {
+    "command": "dm read",
+    "flags": ["--email", "--limit", "--to", "--user-id"],
+    "args": ["recipient"]
+  },
+  {
     "command": "dm send",
     "flags": ["--email", "--file", "--to", "--user-id"],
     "args": ["content"]
@@ -273,8 +288,8 @@
   },
   {
     "command": "messages read",
-    "flags": ["--channel", "--limit"],
-    "args": []
+    "flags": ["--channel", "--channel-name", "--limit"],
+    "args": ["target"]
   },
   {
     "command": "messages search",

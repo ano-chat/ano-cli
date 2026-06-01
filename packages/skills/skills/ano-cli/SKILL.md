@@ -14,6 +14,9 @@ triggers:
   - find messages
   - send dm
   - send direct message
+  - read dm
+  - read direct message
+  - list dms
   - list channels
   - show channels
   - list users
@@ -87,6 +90,8 @@ roundtrip.
 | Send to named channel                    | 1      | `messages send "text" --channel-name random --agent`   |
 | Startup context                          | 1      | `agent context --no-tables --json`                     |
 | Send DM by display name                  | 1      | `dm send ... --to "Name" --agent`                      |
+| Read DM by display name                  | 1      | `dm read "Name" --limit <n> --agent`                   |
+| List DM conversations                    | 1      | `dm list --limit <n> --agent`                          |
 | Read known channel                       | 1      | `messages read --channel <id> --agent`                 |
 | Read known channel, then reply           | 2      | read by cached ID, then send by cached ID              |
 | Search, inspect channel, then reply      | 3      | search, read returned channel ID, reply in thread      |
@@ -115,8 +120,9 @@ Avoidable extra roundtrips:
    Prefer `ano agent context --no-tables --json`; add tables only when working
    with tables. Cache the workspace, channel, user, and table IDs from that
    response.
-   For DMs, use `ano dm send "text" --to "Name" --agent`. List only when the
-   command returns ambiguity or when you need to inspect available options.
+   For DMs, use `ano dm read "Name" --agent` or
+   `ano dm send "text" --to "Name" --agent`. List only when you need the DM
+   inbox shape or when the command returns ambiguity.
 5. **Never fabricate IDs.** Channel/user/message IDs are UUIDs. Source them from
    `agent context` first, then from targeted list/read/search commands only when
    the cached context is missing or stale.
@@ -208,6 +214,9 @@ ano commands --json                 # Full command catalog
 | List workspaces                         | `ano workspaces list --agent`                                         |
 | Read messages                           | `ano messages read --channel <id> --agent`                            |
 | Read (limited)                          | `ano messages read --channel <id> --limit 10 --agent`                 |
+| List DMs                                | `ano dm list --agent`                                                 |
+| Read DM (by name)                       | `ano dm read "Name" --agent`                                          |
+| Read DM (group)                         | `ano dm read --to "Name A" --to "Name B" --agent`                     |
 | Search messages                         | `ano messages search "query" --agent`                                 |
 | Search (limited)                        | `ano messages search "query" --limit 5 --agent`                       |
 | Show URL content                        | `ano show <url> --agent`                                              |
@@ -441,6 +450,7 @@ ano messages send "Fix applied" --channel "$CHANNEL_ID" --thread "$MSG_ID" --age
 ### DM by name
 
 ```bash
+ano dm read "Jane" --limit 25 --agent
 ano dm send "Can you review PR #42?" --to "Jane" --agent
 ```
 

@@ -163,8 +163,9 @@ describe("ano dm send — recipient parsing", () => {
     expect(sendDmMock).not.toHaveBeenCalled();
     expect(outputErrorMock).toHaveBeenCalledWith(
       expect.anything(),
-      expect.stringMatching(/At least one of --to/),
-      expect.anything(),
+      expect.stringMatching(/At least one of .*--to/),
+      1,
+      undefined,
     );
   });
 
@@ -179,7 +180,8 @@ describe("ano dm send — recipient parsing", () => {
     expect(outputErrorMock).toHaveBeenCalledWith(
       expect.anything(),
       expect.stringMatching(/--email is only supported for 1:1/),
-      expect.anything(),
+      1,
+      undefined,
     );
   });
 });
