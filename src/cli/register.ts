@@ -24,6 +24,7 @@ import { registerDaemon } from "./commands/daemon/index.js";
 import { registerDev } from "./commands/dev/index.js";
 import { registerAgent } from "./commands/agent/index.js";
 import { registerWebUrl } from "./commands/web-url.js";
+import { registerTask } from "./commands/task/index.js";
 
 export function registerAllCommands(program: Command): void {
   registerAuth(program);
@@ -51,4 +52,5 @@ export function registerAllCommands(program: Command): void {
   registerDaemon(program);
   registerDev(program);
   registerWebUrl(program);
+  registerTask(program);
 }
