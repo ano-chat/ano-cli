@@ -4,6 +4,18 @@ All notable changes to the `ano` CLI are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Removed
+
+- **`ano session start|update|end|enable|disable|status`** and its local
+  opt-in config (`core/agent-session-config`). The Agent Status feature was
+  removed server-side in the Ano monorepo (PR #1965), so the three
+  `agent_session_*` MCP ops these commands called no longer exist. The
+  commands were already no-ops against prod (the ops returned 404); this
+  removes the now-dead command family. Scripts that invoked `ano session …`
+  should drop those calls.
+
 ## [2.30.0] — 2026-05-31
 
 ### Added
